@@ -1,0 +1,21 @@
+schema_version: rules/1.0
+package: org.apache.velocity:velocity
+description: Apache Velocity 模板沙箱绕过漏洞规则
+
+rules:
+  - rule_id: velocity-cve-2020-13936-v1
+    cve: CVE-2020-13936
+    ghsa: GHSA-59j4-wjwp-mw9m
+    vulnerability_class: template-injection
+    affected_versions: "<= 1.7"
+    fixed_version: ""
+    sinks: []
+    preconditions:
+      - id: attacker_controls_template
+        description: "攻击者能够修改或控制 Velocity 模板内容"
+        evidence_path: "template_control"
+        expect: "attacker_controlled"
+    exploit_notes: "漏洞利用前提是攻击者可修改模板；本项目模板为打包内 classpath 资源，无外部写入入口，即使版本命中也不构成实际风险"
+    fix:
+      - "升级 org.apache.velocity:velocity 至 2.3+"
+      - "pom.xml 中该依赖标记为 optional，若未实际使用可移除依赖"

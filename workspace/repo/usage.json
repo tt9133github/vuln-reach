@@ -1,0 +1,63 @@
+{
+  "schema_version": "repo-usage/1.0",
+  "repo": "tt9133github/mvntree-util",
+  "branch": "master",
+  "manifest": "pom.xml",
+  "evidence": {
+    "com.alibaba:fastjson": {
+      "sinks": [
+        {
+          "api": "JSONObject.parseObject(String)",
+          "file": "src/main/java/com/prism/pom/api/DependencyTreeUtil.java",
+          "line": 114,
+          "context": "入参先经 URLDecoder.decode(jsonStr, \"utf-8\")，再调用 JSONObject.parseObject(jsonStr)"
+        }
+      ],
+      "imports": [
+        {
+          "file": "src/main/java/com/prism/pom/api/DependencyTreeUtil.java",
+          "lines": "3-4"
+        },
+        {
+          "file": "src/main/java/com/prism/pom/service/FileUtil.java",
+          "lines": "3-4"
+        },
+        {
+          "file": "src/main/java/com/prism/pom/service/MvnTreeCommandParser.java",
+          "lines": "3-4"
+        },
+        {
+          "file": "src/main/java/com/prism/pom/service/PomTxtParser.java",
+          "lines": "3-4"
+        }
+      ],
+      "entry_points": [
+        {
+          "name": "DependencyTreeUtil.pomparse(String jsonStr, String mvnHome)",
+          "file": "src/main/java/com/prism/pom/api/DependencyTreeUtil.java",
+          "line": 16,
+          "external_input": true,
+          "note": "public API 直接接收原始 JSON 字符串（URL 解码），sink 入参随外部输入到达；该组件是 Spring Cloud 服务(backend-parsemanage-pom, 见 bootstrap.yml)的解析组件，调用方位于服务层，本地 PoC 已验证该触发链"
+        }
+      ]
+    },
+    "org.apache.velocity:velocity": {
+      "template_control": "internal",
+      "usage": [
+        {
+          "api": "VelocityEngine.getTemplate(String)",
+          "file": "src/main/java/com/prism/pom/service/treeTextParser/extras/VelocityRenderer.java",
+          "line": 133,
+          "context": "模板路径来自 getTemplatePath()；JQueryJSTreeRenderer 硬编码返回 /vm/jstree/index.vm（classpath 资源）"
+        },
+        {
+          "api": "VelocityEngine.init(Properties)",
+          "file": "src/main/java/com/prism/pom/service/treeTextParser/extras/VelocityRenderer.java",
+          "line": 158,
+          "context": "velocity.properties 同样通过 getResourceAsStream 从 classpath 加载"
+        }
+      ],
+      "note": "模板均为打包内静态资源，无上传/外部模板修改入口；VelocityRendererMain 仅用于本地 CLI 渲染，不接受远程模板"
+    }
+  }
+}

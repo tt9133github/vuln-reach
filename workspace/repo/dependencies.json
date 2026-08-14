@@ -1,0 +1,44 @@
+{
+  "schema_version": "repo-deps/1.0",
+  "repo": "tt9133github/mvntree-util",
+  "branch": "master",
+  "manifest": "pom.xml",
+  "dependencies": [
+    {
+      "groupId": "com.alibaba",
+      "artifactId": "fastjson",
+      "package": "com.alibaba:fastjson",
+      "version": "1.2.31",
+      "scope": "compile",
+      "optional": false,
+      "transitive": false
+    },
+    {
+      "groupId": "org.apache.velocity",
+      "artifactId": "velocity",
+      "package": "org.apache.velocity:velocity",
+      "version": "1.6.4",
+      "scope": "compile",
+      "optional": true,
+      "transitive": false
+    },
+    {
+      "groupId": "org.apache.maven.shared",
+      "artifactId": "maven-invoker",
+      "package": "org.apache.maven.shared:maven-invoker",
+      "version": "3.0.1",
+      "scope": "compile",
+      "optional": false,
+      "transitive": false
+    },
+    {
+      "groupId": "org.apache.maven",
+      "artifactId": "maven-model",
+      "package": "org.apache.maven:maven-model",
+      "version": "3.6.2",
+      "scope": "compile",
+      "optional": false,
+      "transitive": false
+    }
+  ]
+}

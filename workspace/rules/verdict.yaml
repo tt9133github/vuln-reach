@@ -1,0 +1,14 @@
+schema_version: verdict-policy/1.0
+
+verdicts:
+  reachable:
+    definition: "版本命中 + sink 存在 + 全部前置条件满足"
+  not_reachable:
+    definition: "版本未命中，或 sink 不存在，或任一前置条件明确不满足"
+  unknown:
+    definition: "证据缺失，无法判定"
+
+confidence:
+  high: "判定依赖的证据均为文件/行号级别事实"
+  medium: "部分证据为推断（如入口来源）"
+  low: "仅版本命中，其余证据不足"

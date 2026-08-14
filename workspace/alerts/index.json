@@ -1,0 +1,35 @@
+{
+  "schema_version": "vuln-alert/1.0",
+  "alerts": [
+    {
+      "file": "CVE-2020-13936.json",
+      "alert_number": 1,
+      "state": "open",
+      "cve_id": "CVE-2020-13936",
+      "ghsa_id": "GHSA-59j4-wjwp-mw9m",
+      "package": "org.apache.velocity:velocity",
+      "severity": "high",
+      "repo": "tt9133github/mvntree-util"
+    },
+    {
+      "file": "CVE-2022-25845.json",
+      "alert_number": 3,
+      "state": "open",
+      "cve_id": "CVE-2022-25845",
+      "ghsa_id": "GHSA-pv7h-hx5h-mgfj",
+      "package": "com.alibaba:fastjson",
+      "severity": "high",
+      "repo": "tt9133github/mvntree-util"
+    },
+    {
+      "file": "CVE-2025-70974.json",
+      "alert_number": 4,
+      "state": "open",
+      "cve_id": "CVE-2025-70974",
+      "ghsa_id": "GHSA-jm7w-5684-pvh8",
+      "package": "com.alibaba:fastjson",
+      "severity": "critical",
+      "repo": "tt9133github/mvntree-util"
+    }
+  ]
+}

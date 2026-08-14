@@ -1,0 +1,48 @@
+schema_version: rules/1.0
+package: com.alibaba:fastjson
+description: fastjson autoType 反序列化类漏洞规则
+
+rules:
+  - rule_id: fastjson-cve-2025-70974-v1
+    cve: CVE-2025-70974
+    ghsa: GHSA-jm7w-5684-pvh8
+    vulnerability_class: unsafe-deserialization
+    affected_versions: "< 1.2.48"
+    fixed_version: "1.2.48"
+    sinks:
+      - api: "JSON.parse(String)"
+      - api: "JSON.parseObject(String)"
+      - api: "JSONObject.parseObject(String)"
+      - api: "JSON.parseArray(String)"
+      - api: "JSONObject.parseArray(String)"
+    preconditions:
+      - id: external_input_controls_sink
+        description: "sink 入参由外部输入控制"
+        evidence_path: "entry_points[*].external_input"
+        expect: true
+    exploit_notes: "autoType 开启时，@type 键可触发 JNDI 注入；1.2.31 默认未启用 safeMode，无需绕过默认限制"
+    fix:
+      - "升级 com.alibaba:fastjson 至 >= 1.2.83（同时覆盖本 CVE 与 CVE-2022-25845）"
+      - "若无法升级：启用 fastjson safeMode（注意会关闭 autoType 功能）"
+
+  - rule_id: fastjson-cve-2022-25845-v1
+    cve: CVE-2022-25845
+    ghsa: GHSA-pv7h-hx5h-mgfj
+    vulnerability_class: unsafe-deserialization
+    affected_versions: ">= 1.2.25, < 1.2.83"
+    fixed_version: "1.2.83"
+    sinks:
+      - api: "JSON.parse(String)"
+      - api: "JSON.parseObject(String)"
+      - api: "JSONObject.parseObject(String)"
+      - api: "JSON.parseArray(String)"
+      - api: "JSONObject.parseArray(String)"
+    preconditions:
+      - id: external_input_controls_sink
+        description: "sink 入参由外部输入控制"
+        evidence_path: "entry_points[*].external_input"
+        expect: true
+    exploit_notes: "绕过默认 autoType 关闭限制；对 1.2.31 而言 autoType 本就开放，规则直接适用"
+    fix:
+      - "升级 com.alibaba:fastjson 至 >= 1.2.83"
+      - "若无法升级：启用 fastjson safeMode"

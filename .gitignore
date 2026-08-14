@@ -1,0 +1,19 @@
+# Local credentials
+.env
+.env.*
+!.env.example
+
+# Installed dependencies and caches
+node_modules/
+__pycache__/
+*.py[cod]
+
+# Generated inputs and reports
+workspace/raw/
+workspace/report/
+
+# Editor and OS files
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

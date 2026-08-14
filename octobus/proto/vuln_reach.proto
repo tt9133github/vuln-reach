@@ -1,0 +1,30 @@
+syntax = "proto3";
+package vulnreach.v1;
+
+service VulnReachService {
+  rpc CheckReachability(CheckReachabilityRequest) returns (CheckReachabilityResponse);
+}
+
+message CheckReachabilityRequest {
+  string cve_id = 1 [json_name = "cveId"];
+  int32 alert_number = 2 [json_name = "alertNumber"];
+}
+
+message CheckReachabilityResponse {
+  string cve_id = 1 [json_name = "cveId"];
+  string ghsa_id = 2 [json_name = "ghsaId"];
+  string package = 3;
+  string installed_version = 4 [json_name = "installedVersion"];
+  string affected_versions = 5 [json_name = "affectedVersions"];
+  string verdict = 6;
+  string confidence = 7;
+  string reason = 8;
+  repeated EvidenceItem evidence = 9;
+  repeated string fix = 10;
+}
+
+message EvidenceItem {
+  string rule_id = 1 [json_name = "ruleId"];
+  string check = 2;
+  string detail = 3;
+}
