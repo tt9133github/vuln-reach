@@ -121,6 +121,7 @@ def main() -> int:
 
     normalized_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     index: list[dict] = []
+    generated_names: set[str] = set()
 
     for raw_file in sorted(raw_dir.glob("*.json")):
         key = raw_file.stem
@@ -132,6 +133,11 @@ def main() -> int:
         for raw in raw_list:
             norm = normalize_alert(raw, repo_cfg, normalized_at)
             name = alert_file_name(norm)
+            if name in generated_names:
+                raise ValueError(
+                    f"输出文件名冲突: {name}；请保留每条告警唯一的 CVE/GHSA 标识"
+                )
+            generated_names.add(name)
             out_file = out_dir / name
             out_file.write_text(
                 json.dumps(norm, ensure_ascii=False, indent=2) + "\n",
@@ -150,6 +156,12 @@ def main() -> int:
                 }
             )
             print(f"[OK] {raw_file.name} -> {name}")
+
+    # 删除上次归一化遗留、但本次输入中已不存在的告警，避免分析过期数据。
+    for old_file in out_dir.glob("*.json"):
+        if old_file.name != "index.json" and old_file.name not in generated_names:
+            old_file.unlink()
+            print(f"[STALE] removed {old_file.name}")
 
     index.sort(key=lambda x: (x["repo"], str(x["alert_number"])))
     (out_dir / "index.json").write_text(

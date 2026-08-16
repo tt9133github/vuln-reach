@@ -1,0 +1,41 @@
+name: agent-platform
+
+services:
+  octobus:
+    image: ${OCTOBUS_IMAGE:-ghcr.io/chaitin/octobus:latest}
+    container_name: octobus
+    restart: always
+    volumes:
+      - octobus-data:/var/lib/octobus
+    ports:
+      - "127.0.0.1:9000:9000"
+    healthcheck:
+      test: ["CMD", "octobus", "--addr", "127.0.0.1:9000", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  agent-compose:
+    image: ${AGENT_COMPOSE_IMAGE:-ghcr.io/chaitin/agent-compose:v2607.10.0}
+    container_name: agent-compose
+    restart: always
+    depends_on:
+      octobus:
+        condition: service_healthy
+    environment:
+      AGENT_COMPOSE_RUNTIME_BASE_URL: http://agent-compose:7410
+      CAP_GRPC_LISTEN: 0.0.0.0:7411
+      CAP_GRPC_TARGET: agent-compose:7411
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/localtime:/etc/localtime:ro
+      - ${AGENT_COMPOSE_DATA_DIR:-/opt/agent-compose/data}:/data
+      - ./.env:/data/work/.env:ro
+    working_dir: /data/work
+    ports:
+      - "127.0.0.1:7410:7410"
+
+volumes:
+  octobus-data:
+    name: octobus-data

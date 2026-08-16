@@ -10,3 +10,4 @@ repos:
     repo: mvntree-util
     ecosystem: maven
     branch: master
+    commit: d253e2585d9cc702037b43edb7cff5752a1281bc

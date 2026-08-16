@@ -6,8 +6,10 @@ service VulnReachService {
 }
 
 message CheckReachabilityRequest {
-  string cve_id = 1 [json_name = "cveId"];
-  int32 alert_number = 2 [json_name = "alertNumber"];
+  oneof selector {
+    string cve_id = 1 [json_name = "cveId"];
+    int32 alert_number = 2 [json_name = "alertNumber"];
+  }
 }
 
 message CheckReachabilityResponse {
@@ -21,10 +23,33 @@ message CheckReachabilityResponse {
   string reason = 8;
   repeated EvidenceItem evidence = 9;
   repeated string fix = 10;
+  int32 alert_number = 11 [json_name = "alertNumber"];
+  string rule_id = 12 [json_name = "ruleId"];
+  string fixed_version = 13 [json_name = "fixedVersion"];
+  string source_commit = 14 [json_name = "sourceCommit"];
+  string scope = 15;
+  repeated string limitations = 16;
+  ReachabilityChecks checks = 17;
+}
+
+message ReachabilityChecks {
+  string version_match = 1 [json_name = "versionMatch"];
+  string sink_present = 2 [json_name = "sinkPresent"];
+  repeated CheckResult preconditions = 3;
+}
+
+message CheckResult {
+  string id = 1;
+  string status = 2;
 }
 
 message EvidenceItem {
   string rule_id = 1 [json_name = "ruleId"];
   string check = 2;
   string detail = 3;
+  string status = 4;
+  string file = 5;
+  int32 line = 6;
+  string observed = 7;
+  string expected = 8;
 }

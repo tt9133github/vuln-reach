@@ -1,187 +1,110 @@
 # vuln-reach：组件漏洞可达性研判 Agent
 
-`vuln-reach` 是运行在 Agent-Compose + OctoBus 基础平台上的安全 Agent 应用，不包含两套平台本身。
+本仓库包含一套可复现的 Agent-Compose + OctoBus 部署，以及考核应用 `vuln-reach`。它分析 GitHub Dependabot 告警，用确定性规则和代码行证据判断漏洞是否可达，再由 Agent 调用 OctoBus 能力做异构交叉验证并生成报告。
 
-它订阅并归一化 GitHub Dependabot 告警，通过确定性规则和代码证据判断漏洞是否真实可达；Agent 负责组织证据、处理不确定性和生成修复报告，并经 OctoBus 调用 `CheckReachability` 做交叉验证和审计留痕。
-
-## 架构与职责
+## 架构与考核点
 
 ```text
-GitHub Dependabot API
-        │ fetch_alerts.py / normalize.py（确定性取数与格式转换）
-        ▼
-workspace/alerts + rules + repo evidence
-        ├──────────────► reachability.py（确定性规则判定）
-        │
-        └──────────────► Agent-Compose / reach-analyzer（证据组织、差异处理、报告）
+Dependabot 告警 → normalize.py → 统一告警契约
                                   │
-                                  ▼
-                         OctoBus capset=vulnreach
-                                  │ CheckReachability
-                                  ▼
-                         审计日志 access.log
+                  依赖清单 + 源码证据 + YAML 规则
+                                  │
+                   ┌──────────────┴──────────────┐
+                   │ Python 确定性引擎           │ OctoBus JS 能力
+                   └──────────────┬──────────────┘
+                                  │ 关键字段必须一致
+                         Agent 解释并输出报告
 ```
 
-- `agent-compose.yml`：Agent、模型、工作区、定时触发器和 OctoBus capset 声明。
-- `workspace/`：归一化告警、依赖清单、代码使用证据、规则和确定性研判脚本。
-- `octobus/`：`vuln-reach` 能力服务源码；导入时与同一份 `workspace/` 组装，避免维护两份规则。
-- `scripts/`：Dependabot 在线取数和归一化脚本。
-- `run.sh`：应用项目、运行 Agent、打印运行日志和 OctoBus 审计记录。
+- `deploy/docker-compose.yml`：统一管理 Agent-Compose 与 OctoBus，均为 `restart: always`。
+- `agent-compose.yml`：Agent、固定 Guest 镜像、模型、工作区、capset 和 UTC cron。
+- `octobus/`：可导入的 `vuln-reach` 服务；仅授权一个显式 gRPC method。
+- `workspace/`：离线告警样例、目标 commit、依赖清单、源码证据、规则和 Python 判定引擎。
+- `scripts/`：平台配置、OctoBus 注册、在线取数、归一化与验收。
+- `run.sh`：构建 Guest、应用项目、执行 demo、检查三个报告和审计记录。
 
-## 仓库结构
+当前兼容矩阵固定为：
 
-```text
-vuln-reach/
-├── agent-compose.yml
-├── run.sh
-├── sources.yaml
-├── scripts/
-│   ├── fetch_alerts.py
-│   └── normalize.py
-├── workspace/
-│   ├── alerts/
-│   ├── repo/
-│   ├── rules/
-│   └── scripts/reachability.py
-└── octobus/
-    ├── bin/vuln-reach.js
-    ├── proto/vuln_reach.proto
-    ├── service.json
-    ├── package.json
-    ├── config.schema.json
-    └── secret.schema.json
-```
+| 组件 | 版本策略 |
+| --- | --- |
+| Agent-Compose daemon/guest | `v2607.10.0`，保持 `workspace.provider: local` 配置兼容 |
+| 自定义 Guest | 基于官方 `v2607.10.0`，额外安装 `PyYAML==6.0.2` |
+| OctoBus | `.env` 中可替换；首次拉取后建议将 `latest` 改成已验证 digest |
+| Node.js 能力依赖 | `package-lock.json` 锁定 |
 
-## 前置条件
+## 全新安装
 
-服务器应已安装并运行：
+以下命令会替换同名 `agent-compose`、`octobus` 容器以及同名 Compose 项目。重要数据先备份；不要直接复制示例中的空 Token。
 
-- Docker 与 Docker Compose v2。
-- Agent-Compose daemon，容器名为 `agent-compose`。
-- OctoBus daemon，容器名为 `octobus`，端口仅绑定 `127.0.0.1:9000`。
-
-
-## 从干净目录部署
-
-以下步骤假设仓库被放到固定路径 `/opt/agent-compose/data/projects/vuln-reach`。固定路径可以确保 Agent-Compose 使用稳定的项目标识，避免因配置文件路径变化生成重复项目记录。
-
-### 0. 删除旧目录前先下线旧项目
+### 1. 准备平台目录和配置
 
 ```bash
-docker exec agent-compose agent-compose -f \
-  /data/projects/vuln-reach/agent-compose/agent-compose.yml down 2>/dev/null || true
+sudo mkdir -p /opt/agent-compose/data/projects
+cd /opt/agent-compose
 
-docker exec agent-compose agent-compose -f \
-  /data/projects/vuln-reach/agent-compose.yml down 2>/dev/null || true
+# 将仓库 deploy/docker-compose.yml 和 deploy/.env.example 放到此目录
+cp /path/to/vuln-reach/deploy/docker-compose.yml ./docker-compose.yml
+cp /path/to/vuln-reach/deploy/.env.example ./.env
+chmod 600 .env
+
+# 编辑模型接入参数：LLM_API_ENDPOINT / LLM_API_KEY / LLM_MODEL
+vi .env
+
+# 生成 OctoBus capset Token；命令不会向终端打印值
+umask 077
+token="$(openssl rand -hex 32)"
+sed -i "s/^OCTOBUS_TOKEN=.*/OCTOBUS_TOKEN=${token}/" .env
+unset token
 ```
 
-`down` 不删除运行历史；它只停止旧沙箱和调度器。完成后再移除或备份服务器上的旧 `vuln-reach` 目录。
+`docker-compose.yml` 已声明所有持久化映射，不需要每次手工映射：
 
-### 1. 获取代码并启动基础平台
+- `/opt/agent-compose/data:/data`：Agent-Compose 数据、项目与运行记录。
+- Docker named volume `octobus-data:/var/lib/octobus`：OctoBus 服务、实例、capset 与审计日志。
+- `/var/run/docker.sock`：Agent-Compose 创建 Guest 沙箱所需。
+
+两个 HTTP 端口只绑定 `127.0.0.1`，不会直接暴露控制面到公网。云安全组也不应放行 7410/9000。
+
+### 2. 启动基础平台
 
 ```bash
 cd /opt/agent-compose
-docker compose up -d octobus agent-compose
+docker compose pull
+docker compose up -d
+docker compose ps
+```
 
-mkdir -p /opt/agent-compose/data/projects
+### 3. 克隆答题仓库
+
+```bash
 cd /opt/agent-compose/data/projects
-git clone <仓库地址> vuln-reach
+git clone https://github.com/tt9133github/vuln-reach.git vuln-reach
 cd vuln-reach
 ```
 
-### 2. 准备共享 Token
-
-
-```bash
-cd /opt/agent-compose
-
-if ! grep -q '^OCTOBUS_TOKEN=.' .env; then
-  umask 077
-  printf '\nOCTOBUS_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-fi
-
-OCTOBUS_TOKEN="$(sed -n 's/^OCTOBUS_TOKEN=//p' .env | tail -1)"
-test -n "$OCTOBUS_TOKEN"
-docker compose up -d --force-recreate agent-compose
-```
-
-不要打印或提交该变量。
-
-### 3. 导入 OctoBus 能力服务
-
-下面的命令只清理并重建本项目使用的 `vulnreach`、`reach-01` 和 `vuln-reach`，不会影响其他能力服务：
+### 4. 配置网关并注册 OctoBus 能力
 
 ```bash
 cd /opt/agent-compose/data/projects/vuln-reach
-
-docker exec octobus octobus --addr 127.0.0.1:9000 capset delete vulnreach 2>/dev/null || true
-docker exec octobus octobus --addr 127.0.0.1:9000 instance delete reach-01 2>/dev/null || true
-docker exec octobus octobus --addr 127.0.0.1:9000 service delete vuln-reach 2>/dev/null || true
-
-docker exec -u 0 octobus sh -c \
-  'rm -rf /var/lib/octobus/imports/vuln-reach && mkdir -p /var/lib/octobus/imports/vuln-reach/workspace'
-
-docker cp octobus/. octobus:/var/lib/octobus/imports/vuln-reach/
-docker cp workspace/. octobus:/var/lib/octobus/imports/vuln-reach/workspace/
-docker exec -u 0 octobus chmod 755 /var/lib/octobus/imports/vuln-reach/bin/vuln-reach.js
-
-docker exec octobus octobus --addr 127.0.0.1:9000 service import \
-  vuln-reach /var/lib/octobus/imports/vuln-reach --build auto --reinstall
+bash scripts/configure_gateway.sh
+bash scripts/deploy_octobus.sh
 ```
 
-### 4. 创建 instance → capset → method → token 链路
+两个脚本分别完成：
 
-```bash
-docker exec octobus octobus --addr 127.0.0.1:9000 instance create \
-  reach-01 --service vuln-reach --config-json '{}'
+1. 将 OctoBus 内网地址和 Token 写入 Agent-Compose settings；全新数据库不能跳过此步。
+2. 导入 `octobus/` 与同一份 `workspace/`，创建 `service → instance → capset → method → token` 链路。
 
-docker exec octobus octobus --addr 127.0.0.1:9000 capset create \
-  vulnreach --name VulnerabilityReach \
-  --description 'Vulnerability reachability capability set'
+脚本只重建本项目的 `vuln-reach` service、`reach-01` instance 和 `vulnreach` capset，不会打印 Token。
 
-docker exec octobus octobus --addr 127.0.0.1:9000 capset add-instance \
-  vulnreach reach-01 --no-all-methods
-
-docker exec octobus octobus --addr 127.0.0.1:9000 capset select-method \
-  vulnreach reach-01 vulnreach.v1.VulnReachService/CheckReachability \
-  --mcp-tool vuln-reach__reach-01__check_reachability
-
-printf '%s' "$OCTOBUS_TOKEN" | docker exec -i octobus \
-  octobus --addr 127.0.0.1:9000 capset add-token \
-  vulnreach vulnreach-token-01 --token-stdin
-```
-
-验证注册结果：
-
-```bash
-docker exec octobus octobus --addr 127.0.0.1:9000 status
-docker exec octobus octobus --addr 127.0.0.1:9000 service list
-docker exec octobus octobus --addr 127.0.0.1:9000 instance list
-docker exec octobus octobus --addr 127.0.0.1:9000 capset list-methods vulnreach
-```
-
-结果中应看到：
-
-- service：`vuln-reach`
-- instance：`reach-01`，状态为 `running`
-- capset：`vulnreach`
-- method：`vulnreach.v1.VulnReachService/CheckReachability`
-
-### 5. 应用并运行 Agent
+### 5. 跑通 demo 和验收
 
 ```bash
 cd /opt/agent-compose/data/projects/vuln-reach
 bash run.sh
 ```
 
-`run.sh` 会依次完成：
-
-1. 检查 Agent-Compose 和 OctoBus 状态。
-2. 校验并应用 `agent-compose.yml`。
-3. 运行 `reach-analyzer`。
-4. 输出 Agent 日志和最新的 OctoBus `CheckReachability` 审计记录。
-
-输出文件位于：
+首次运行会构建 `vuln-reach-guest:v1.0.0`。成功后应得到：
 
 ```text
 workspace/report/verdicts.json
@@ -189,42 +112,52 @@ workspace/report/reachability-report.md
 workspace/report/agent-report.md
 ```
 
-定时触发器 `daily-reachability` 每天 03:00 执行，也可检查：
+也可单独复验：
 
 ```bash
+bash scripts/verify.sh
 docker exec agent-compose agent-compose -f \
   /data/projects/vuln-reach/agent-compose.yml scheduler ls
+docker exec octobus sh -c \
+  "grep 'CheckReachability' /var/lib/octobus/access.log | tail"
 ```
 
-## 可选：重新拉取 Dependabot 告警
+声明式 cron 使用 UTC：`0 19 * * *` 对应北京时间次日 03:00。重启服务器后用 `docker compose ps` 确认两个服务自动恢复。
 
-仓库已包含可离线复现的归一化样例。重新在线取数时，在当前 shell 临时设置只读 GitHub Token：
+## 判定边界与证据
+
+三态口径：
+
+- `reachable`：版本、sink 和全部利用前置条件都有肯定证据。
+- `not_reachable`：至少一个必要条件有完整、可追溯的反证。
+- `unknown`：必要证据缺失、版本/规则解析失败、扫描完整性未知，或 Python/JS 结果不一致。
+
+“没有找到”不自动等于“不存在”。依赖缺失只有在清单标记为 authoritative 时才能成为反证；sink 缺失只有在 `sink_scan_complete: true` 时才能成为反证。
+
+目标源码证据固定到 `tt9133github/mvntree-util@d253e2585d9cc702037b43edb7cff5752a1281bc`。fastjson 结论只证明目标组件的 public API 参数到达 `JSONObject.parseObject`，不声称该 API 已暴露公网，也不声称实际 RCE 成功。报告会保留 gadget、运行时配置、网络入口等限制。
+
+修复建议区分“CVE 首个修复版本”和“当前部署选择”：fastjson 优先迁移 fastjson2；保留 1.x 时至少使用 1.2.84。SafeMode 从较新 1.x 才提供，不能作为 1.2.31 原地开启的措施。Velocity 2.x 迁移需要把 Maven artifact 改为 `org.apache.velocity:velocity-engine-core`。
+
+规则依据包括 [fastjson 1.2.84 官方发布说明](https://github.com/alibaba/fastjson/releases)、[fastjson SafeMode 官方安全更新](https://github.com/alibaba/fastjson/wiki/security_update_20200601)、[Apache Velocity CVE-2020-13936 公告](https://velocity.apache.org/news.html) 和 [Velocity 2.x 升级说明](https://velocity.apache.org/engine/2.3/upgrading.html)。
+
+## 更新告警与本地测试
+
+仓库自带离线样例。重新获取 Dependabot 告警时使用只读 GitHub Token：
 
 ```bash
-cd /opt/agent-compose/data/projects/vuln-reach
-export GITHUB_TOKEN='<只读 GitHub Token>'
+export GITHUB_TOKEN='<read-only token>'
 python3 scripts/fetch_alerts.py
 python3 scripts/normalize.py
 unset GITHUB_TOKEN
+bash scripts/deploy_octobus.sh
 ```
 
-更新 `workspace/` 后，重新执行“导入 OctoBus 能力服务”，确保 Agent 与能力服务消费同一份数据和规则。
+`normalize.py` 会拒绝输出文件名冲突，并删除本次输入中已不存在的旧告警，避免陈旧文件继续参与分析。
 
-## 判定知识与脚本分工
+```bash
+pip install -r guest/requirements.txt
+python -m unittest discover -s tests -v
+cd octobus && npm ci && npm test
+```
 
-确定性代码负责：
-
-- 版本区间解析与命中判断。
-- 危险 API sink 与代码行证据匹配。
-- 前置条件逐项求值。
-- `reachable / not_reachable / unknown` 状态计算。
-- 输入归一化、字段校验和结构化报告。
-
-LLM Agent 负责：
-
-- 组织多来源证据并解释判定。
-- 对本地脚本与 OctoBus 结果做一致性检查。
-- 证据不足时维持 `unknown`，而不是补造结论。
-- 生成面向修复人员的建议和最终报告。
-
-核心经验规则位于 `workspace/rules/`，实际被 Python 研判脚本和 OctoBus JS 服务共同消费。每条结论必须引用 `rule_id` 和具体文件行号。
+CI 同时执行 Python 与 JS 共享场景、静态语法检查。任何新增规则都应为两个引擎补充相同预期结果。

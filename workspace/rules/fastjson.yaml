@@ -9,6 +9,7 @@ rules:
     vulnerability_class: unsafe-deserialization
     affected_versions: "< 1.2.48"
     fixed_version: "1.2.48"
+    scope: "组件 public API 边界；证明调用者可控参数到达反序列化 sink，不等同于证明公网暴露或利用成功"
     sinks:
       - api: "JSON.parse(String)"
       - api: "JSON.parseObject(String)"
@@ -18,12 +19,14 @@ rules:
     preconditions:
       - id: external_input_controls_sink
         description: "sink 入参由外部输入控制"
-        evidence_path: "entry_points[*].external_input"
+        evidence_path: "entry_points[*].sink_argument_controlled"
         expect: true
-    exploit_notes: "autoType 开启时，@type 键可触发 JNDI 注入；1.2.31 默认未启用 safeMode，无需绕过默认限制"
+    exploit_notes: "版本与调用链命中；真实利用仍取决于运行时配置、类路径 gadget 与上层调用者是否传入不可信数据。SafeMode 自 1.2.68 才提供，不能作为 1.2.31 的原地开关。"
     fix:
-      - "升级 com.alibaba:fastjson 至 >= 1.2.83（同时覆盖本 CVE 与 CVE-2022-25845）"
-      - "若无法升级：启用 fastjson safeMode（注意会关闭 autoType 功能）"
+      - "优先迁移到 fastjson2；若必须保留 1.x，升级到当前 1.x 修复版本 >= 1.2.84 并完成兼容性测试"
+      - "升级到支持 SafeMode 的版本后可启用 SafeMode 作为纵深防御；不要把它写成 1.2.31 可直接启用的措施"
+    limitations:
+      - "未运行恶意载荷，未验证 classpath gadget、JNDI 出网条件或上层网络入口"
 
   - rule_id: fastjson-cve-2022-25845-v1
     cve: CVE-2022-25845
@@ -31,6 +34,7 @@ rules:
     vulnerability_class: unsafe-deserialization
     affected_versions: ">= 1.2.25, < 1.2.83"
     fixed_version: "1.2.83"
+    scope: "组件 public API 边界；证明调用者可控参数到达反序列化 sink，不等同于证明公网暴露或利用成功"
     sinks:
       - api: "JSON.parse(String)"
       - api: "JSON.parseObject(String)"
@@ -40,9 +44,11 @@ rules:
     preconditions:
       - id: external_input_controls_sink
         description: "sink 入参由外部输入控制"
-        evidence_path: "entry_points[*].external_input"
+        evidence_path: "entry_points[*].sink_argument_controlled"
         expect: true
-    exploit_notes: "绕过默认 autoType 关闭限制；对 1.2.31 而言 autoType 本就开放，规则直接适用"
+    exploit_notes: "该 CVE 涉及对 AutoType 限制的绕过；1.2.25 起 AutoType 默认受到限制，不能表述为 1.2.31 默认完全开放。"
     fix:
-      - "升级 com.alibaba:fastjson 至 >= 1.2.83"
-      - "若无法升级：启用 fastjson safeMode"
+      - "CVE 首个修复版本为 1.2.83；部署时优先迁移 fastjson2，或升级到当前 1.x 修复版本 >= 1.2.84"
+      - "升级后启用 SafeMode/禁用 AutoType，并减少可反序列化类型；这些措施不能替代升级"
+    limitations:
+      - "未运行恶意载荷，未验证 classpath gadget、运行时 AutoType 配置或上层网络入口"

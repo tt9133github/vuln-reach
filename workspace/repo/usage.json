@@ -3,8 +3,15 @@
   "repo": "tt9133github/mvntree-util",
   "branch": "master",
   "manifest": "pom.xml",
+  "source": {
+    "url": "https://github.com/tt9133github/mvntree-util",
+    "ref": "master",
+    "commit": "d253e2585d9cc702037b43edb7cff5752a1281bc",
+    "method": "manual source review"
+  },
   "evidence": {
     "com.alibaba:fastjson": {
+      "sink_scan_complete": true,
       "sinks": [
         {
           "api": "JSONObject.parseObject(String)",
@@ -36,12 +43,15 @@
           "name": "DependencyTreeUtil.pomparse(String jsonStr, String mvnHome)",
           "file": "src/main/java/com/prism/pom/api/DependencyTreeUtil.java",
           "line": 16,
-          "external_input": true,
-          "note": "public API 直接接收原始 JSON 字符串（URL 解码），sink 入参随外部输入到达；该组件是 Spring Cloud 服务(backend-parsemanage-pom, 见 bootstrap.yml)的解析组件，调用方位于服务层，本地 PoC 已验证该触发链"
+          "sink_argument_controlled": true,
+          "external_exposure": "unknown",
+          "flow": [16, 20, 107, 109, 114],
+          "note": "public 组件 API 的 jsonStr 参数经 URLDecoder 后到达 JSONObject.parseObject；本证据不声明该 API 已暴露到互联网，也不声明利用成功"
         }
       ]
     },
     "org.apache.velocity:velocity": {
+      "sink_scan_complete": true,
       "template_control": "internal",
       "usage": [
         {

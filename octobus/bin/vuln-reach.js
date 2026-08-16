@@ -1,296 +1,186 @@
 #!/usr/bin/env node
-/**
- * OctoBus capability: vuln-reach / CheckReachability.
- *
- * Consumes the SAME rule files and repository evidence as the Python
- * reachability.py (single source of truth in workspace/):
- *   workspace/rules/*.yaml   rules (version ranges, sinks, preconditions)
- *   workspace/repo/*.json    dependency inventory + code usage evidence
- *   workspace/alerts/*.json  normalized alert contracts
- */
-import { readFileSync, readdirSync } from "node:fs";
+/** OctoBus capability using the same rules and evidence as the Python engine. */
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const WS = path.join(ROOT, "workspace");
+const PACKAGED_WORKSPACE = path.join(ROOT, "workspace");
+const WS = process.env.VULN_REACH_WORKSPACE ||
+  (existsSync(PACKAGED_WORKSPACE) ? PACKAGED_WORKSPACE : path.resolve(ROOT, "../workspace"));
+const STATUS = new Map([[true, "pass"], [false, "fail"], [null, "unknown"]]);
 
-function readJson(rel) {
-  return JSON.parse(readFileSync(path.join(WS, rel), "utf8"));
+const readJson = (rel) => JSON.parse(readFileSync(path.join(WS, rel), "utf8"));
+const readYaml = (rel) => parseYaml(readFileSync(path.join(WS, rel), "utf8"));
+
+export function versionTuple(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+(?:\.\d+)*$/.test(text)) return null;
+  return /^\d+(?:\.\d+)*/.exec(text)[0].split(".").map(Number);
 }
 
-function readYaml(rel) {
-  return parseYaml(readFileSync(path.join(WS, rel), "utf8"));
-}
-
-function versionTuple(v) {
-  return String(v)
-    .trim()
-    .toLowerCase()
-    .split(".")
-    .map((part) => {
-      const m = /^(\d+)/.exec(part);
-      return m ? parseInt(m[1], 10) : 0;
-    });
-}
-
-function parseConstraint(text) {
-  const m = /^(<=|>=|<|>|==|=)?\s*([0-9][0-9a-zA-Z._-]*)/.exec(String(text).trim());
-  if (!m) return [null, null];
-  return [m[1] || "=", versionTuple(m[2])];
-}
-
-function cmpVersion(a, b) {
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    const x = a[i] ?? 0;
-    const y = b[i] ?? 0;
-    if (x < y) return -1;
-    if (x > y) return 1;
+function compareVersions(left, right) {
+  const size = Math.max(left.length, right.length);
+  for (let index = 0; index < size; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return Math.sign(difference);
   }
   return 0;
 }
 
-function versionInRange(version, spec) {
-  if (!spec || !String(spec).trim()) return true;
-  const v = versionTuple(version);
-  return String(spec)
-    .split(",")
-    .every((part) => {
-      const [op, target] = parseConstraint(part);
-      if (target == null) return true;
-      const c = cmpVersion(v, target);
-      if (op === "<") return c < 0;
-      if (op === "<=") return c <= 0;
-      if (op === ">") return c > 0;
-      if (op === ">=") return c >= 0;
-      return c === 0;
-    });
+function parseConstraint(value) {
+  const match = /^\s*(<=|>=|<|>|==|=)?\s*(\d+(?:\.\d+)*)\s*$/.exec(String(value));
+  if (!match) return null;
+  return [match[1] || "=", versionTuple(match[2])];
 }
 
-function resolveEvidencePath(evidence, p) {
+export function versionInRange(version, spec) {
+  const current = versionTuple(version);
+  const constraints = String(spec ?? "").split(",").map(parseConstraint);
+  if (!current || !spec || constraints.some((value) => value === null)) return null;
+  for (const [operator, target] of constraints) {
+    const comparison = compareVersions(current, target);
+    if (operator === "<" && comparison >= 0) return false;
+    if (operator === "<=" && comparison > 0) return false;
+    if (operator === ">" && comparison <= 0) return false;
+    if (operator === ">=" && comparison < 0) return false;
+    if (["=", "=="].includes(operator) && comparison !== 0) return false;
+  }
+  return true;
+}
+
+function resolveEvidencePath(evidence, dottedPath) {
   let current = [evidence];
-  for (const seg of p.split(".")) {
+  for (const segment of dottedPath.split(".")) {
+    const expand = segment.endsWith("[*]");
+    const key = expand ? segment.slice(0, -3) : segment;
     const next = [];
-    if (seg.endsWith("[*]")) {
-      const key = seg.slice(0, -3);
-      for (const item of current) {
-        if (item && typeof item === "object" && Array.isArray(item[key])) next.push(...item[key]);
-      }
-    } else {
-      for (const item of current) {
-        if (item && typeof item === "object" && seg in item) next.push(item[seg]);
-      }
+    for (const item of current) {
+      if (!item || typeof item !== "object" || !(key in item)) continue;
+      if (expand && Array.isArray(item[key])) next.push(...item[key]);
+      else if (!expand) next.push(item[key]);
     }
     current = next;
   }
   return current;
 }
 
-function sinkPatterns(ruleSinks) {
-  return (ruleSinks || [])
-    .map((s) => (s && typeof s === "object" ? String(s.api || "") : String(s)))
-    .filter(Boolean);
+const sinkPatterns = (sinks) => (sinks || []).map((item) =>
+  typeof item === "object" ? String(item.api || "") : String(item)).filter(Boolean);
+
+function evidenceItem(ruleId, check, value, detail, fields = {}) {
+  return { ruleId, check, status: STATUS.get(value), detail, ...Object.fromEntries(Object.entries(fields).filter(([, item]) => item !== undefined && item !== "")) };
 }
 
-export function judge(alert, rule, dep, evidence) {
-  const checks = { preconditions: {} };
-  const evidenceItems = [];
-  const installed = dep ? dep.version || "" : "";
+function checkSink(evidence, patterns) {
+  if (patterns.length === 0) return [true, "rule has no fixed sink API; usage evidence is evaluated by preconditions", evidence?.usage || []];
+  if (!evidence) return [null, "package usage evidence is missing", []];
+  const matches = (evidence.sinks || []).filter((item) => patterns.includes(item.api));
+  if (matches.length > 0) return [true, `matched ${matches.length} rule-defined sink call(s)`, matches];
+  if (evidence.sink_scan_complete === true) return [false, "complete sink scan found no rule-defined call", []];
+  return [null, "no matching sink found, but sink scan completeness is not established", []];
+}
 
+export function judge(alert, rule, dep, evidence, source = {}) {
+  const installed = dep?.version || "";
+  let versionMatch;
+  let versionDetail;
   if (dep) {
-    checks.versionMatch = versionInRange(installed, rule.affected_versions || "");
-    evidenceItems.push({
-      ruleId: rule.rule_id,
-      check: "version_match",
-      detail: checks.versionMatch
-        ? `${dep.package} ${installed} in ${rule.affected_versions || "*"}`
-        : `${dep.package} ${installed} NOT in ${rule.affected_versions || "*"}`,
-    });
+    versionMatch = versionInRange(installed, rule.affected_versions);
+    versionDetail = `${dep.package} ${installed} against ${rule.affected_versions || ""}`;
+  } else if (source.authoritative === true) {
+    versionMatch = false;
+    versionDetail = "package absent from authoritative dependency inventory";
   } else {
-    checks.versionMatch = false;
-    evidenceItems.push({
-      ruleId: rule.rule_id,
-      check: "version_match",
-      detail: "package not found in dependency inventory",
-    });
+    versionMatch = null;
+    versionDetail = "package absent and dependency inventory is not authoritative";
   }
 
   const patterns = sinkPatterns(rule.sinks);
-  if (patterns.length === 0) {
-    checks.sinkPresent = true;
-    evidenceItems.push({
-      ruleId: rule.rule_id,
-      check: "sink_present",
-      detail: "rule defines no fixed sink API; sink check skipped",
-    });
-    for (const u of (evidence && evidence.usage) || []) {
-      evidenceItems.push({
-        ruleId: rule.rule_id,
-        check: "usage",
-        detail: `${u.file || ""}:${u.line || ""} ${u.api || ""} - ${u.context || ""}`,
-      });
+  const [sinkPresent, sinkDetail, matches] = checkSink(evidence, patterns);
+  const checks = { versionMatch, sinkPresent, preconditions: {} };
+  const items = [
+    evidenceItem(rule.rule_id, "version_match", versionMatch, versionDetail, { observed: installed, expected: rule.affected_versions }),
+    evidenceItem(rule.rule_id, "sink_present", sinkPresent, sinkDetail, { expected: patterns.join(", ") }),
+  ];
+  for (const match of matches) {
+    items.push(evidenceItem(rule.rule_id, patterns.length > 0 ? "sink_call" : "usage", true, match.context || "matched code usage", { file: match.file, line: match.line, observed: match.api }));
+  }
+  for (const precondition of rule.preconditions || []) {
+    const values = resolveEvidencePath(evidence || {}, precondition.evidence_path);
+    const result = values.length === 0 ? null : values.some((value) => value === precondition.expect);
+    checks.preconditions[precondition.id] = result;
+    let location = {};
+    if (precondition.evidence_path.startsWith("entry_points[*].")) {
+      const key = precondition.evidence_path.split(".", 2)[1];
+      const matchedEntry = (evidence?.entry_points || []).find((entry) => entry[key] === precondition.expect) || {};
+      location = { file: matchedEntry.file, line: matchedEntry.line };
     }
-  } else if (evidence) {
-    const sinkApis = (evidence.sinks || []).map((e) => e.api || "");
-    const matched = sinkApis.filter((s) => patterns.includes(s));
-    checks.sinkPresent = matched.length > 0;
-    evidenceItems.push({
-      ruleId: rule.rule_id,
-      check: "sink_present",
-      detail: checks.sinkPresent ? `sink hit: ${matched.join(", ")}` : "no rule-defined sink call found",
-    });
-    if (checks.sinkPresent) {
-      for (const e of evidence.sinks || []) {
-        if (patterns.includes(e.api)) {
-          evidenceItems.push({
-            ruleId: rule.rule_id,
-            check: "sink_call",
-            detail: `${e.file || ""}:${e.line || ""} ${e.api || ""} - ${e.context || ""}`,
-          });
-        }
-      }
-    }
-  } else {
-    checks.sinkPresent = false;
-    evidenceItems.push({
-      ruleId: rule.rule_id,
-      check: "sink_present",
-      detail: "no evidence in usage.json for this package",
-    });
+    items.push(evidenceItem(rule.rule_id, `precondition:${precondition.id}`, result, precondition.description, { observed: JSON.stringify(values), expected: JSON.stringify(precondition.expect), ...location }));
   }
 
-  let precondMet = true;
-  for (const pc of rule.preconditions || []) {
-    const values = resolveEvidencePath(evidence || {}, pc.evidence_path);
-    let ok = null;
-    if (values.length === 0) {
-      ok = null;
-      precondMet = false;
-      evidenceItems.push({
-        ruleId: rule.rule_id,
-        check: `precondition:${pc.id}`,
-        detail: `${pc.description} - evidence missing`,
-      });
-    } else {
-      ok = values.some((v) => v === pc.expect);
-      precondMet = precondMet && ok;
-      evidenceItems.push({
-        ruleId: rule.rule_id,
-        check: `precondition:${pc.id}`,
-        detail: `${pc.description} - ${ok ? "met" : "NOT met"} (values: ${JSON.stringify(values)})`,
-      });
-    }
-    checks.preconditions[pc.id] = ok;
-  }
-
+  const allChecks = [versionMatch, sinkPresent, ...Object.values(checks.preconditions)];
   let verdict;
   let reason;
-  if (!checks.versionMatch) {
-    verdict = "not_reachable";
-    reason = "installed version outside affected range";
-  } else if (!checks.sinkPresent) {
-    verdict = "not_reachable";
-    reason = "no rule-defined sink call found";
-  } else if (Object.values(checks.preconditions).some((v) => v === false)) {
-    verdict = "not_reachable";
-    const failed = (rule.preconditions || [])
-      .filter((pc) => checks.preconditions[pc.id] === false)
-      .map((pc) => pc.description);
-    reason = "precondition not met: " + failed.join("; ");
-  } else if (Object.values(checks.preconditions).some((v) => v === null)) {
-    verdict = "unknown";
-    reason = "precondition evidence missing";
-  } else {
-    verdict = "reachable";
-    reason = "version hit, sink present and all preconditions met";
-  }
-
-  let confidence = "medium";
-  if (verdict === "not_reachable" && !checks.versionMatch) confidence = "high";
-  else if (verdict === "reachable") {
-    confidence = evidenceItems.some((e) => /\.java:\d+/.test(e.detail)) ? "high" : "medium";
-  } else if (verdict === "unknown") confidence = "low";
+  if (allChecks.some((value) => value === false)) [verdict, reason] = ["not_reachable", "at least one required condition is explicitly false"];
+  else if (allChecks.some((value) => value === null)) [verdict, reason] = ["unknown", "one or more required conditions lack trustworthy evidence"];
+  else [verdict, reason] = ["reachable", "version, sink and all exploit preconditions are established"];
+  const located = items.some((item) => item.file && item.line);
+  const confidence = verdict === "unknown" ? "low" : (located ? "high" : "medium");
 
   return {
-    cveId: alert.advisory.cve_id,
-    ghsaId: alert.advisory.ghsa_id,
-    package: alert.vulnerability.package,
-    installedVersion: installed,
-    affectedVersions: rule.affected_versions || "",
-    verdict,
-    confidence,
-    reason,
-    evidence: evidenceItems,
-    fix: rule.fix || [],
+    cveId: alert.advisory.cve_id, ghsaId: alert.advisory.ghsa_id,
+    alertNumber: alert.alert.number, package: alert.vulnerability.package,
+    installedVersion: installed, affectedVersions: rule.affected_versions || "",
+    fixedVersion: rule.fixed_version || "", ruleId: rule.rule_id,
+    sourceCommit: source.commit || "", scope: rule.scope || "component API boundary",
+    limitations: rule.limitations || [],
+    checks: {
+      versionMatch: STATUS.get(checks.versionMatch),
+      sinkPresent: STATUS.get(checks.sinkPresent),
+      preconditions: Object.entries(checks.preconditions).map(([id, value]) => ({ id, status: STATUS.get(value) })),
+    },
+    verdict, confidence, reason,
+    evidence: items, fix: rule.fix || [],
   };
 }
 
+function unknownResponse(request, reason) {
+  return { cveId: request.cveId || "", alertNumber: Number(request.alertNumber || 0), verdict: "unknown", confidence: "low", reason, evidence: [], fix: [], limitations: [] };
+}
+
 export function checkReachabilityHandler(ctx) {
-  const req = ctx.request || {};
-  const cve = String(req.cveId || "").trim();
-  const alertNumber = Number(req.alertNumber || 0);
+  const request = ctx.request || {};
+  const cve = String(request.cveId || "").trim();
+  const alertNumber = Number(request.alertNumber || 0);
+  if ((cve && alertNumber) || (!cve && !alertNumber)) return unknownResponse(request, "provide exactly one selector: cveId or alertNumber");
+  const alerts = readdirSync(path.join(WS, "alerts"))
+    .filter((file) => file.endsWith(".json") && file !== "index.json")
+    .map((file) => readJson(path.join("alerts", file)));
+  const alert = cve ? alerts.find((item) => item.advisory.cve_id === cve) : alerts.find((item) => item.alert.number === alertNumber);
+  if (!alert) return unknownResponse(request, "alert not found in workspace");
 
-  const alertFiles = readdirSync(path.join(WS, "alerts")).filter(
-    (f) => f.endsWith(".json") && f !== "index.json",
-  );
-  const alerts = alertFiles.map((f) => readJson(path.join("alerts", f)));
-  const alert = alerts.find(
-    (a) => (cve && a.advisory.cve_id === cve) || (alertNumber && a.alert.number === alertNumber),
-  );
-
-  if (!alert) {
-    return {
-      cveId: cve,
-      verdict: "unknown",
-      confidence: "low",
-      reason: `alert not found in workspace (cve=${cve}, number=${alertNumber})`,
-      evidence: [],
-      fix: [],
-    };
+  const rules = new Map();
+  for (const file of readdirSync(path.join(WS, "rules")).filter((item) => item.endsWith(".yaml") && item !== "verdict.yaml")) {
+    for (const rule of readYaml(path.join("rules", file)).rules || []) {
+      if (!rule.cve || rules.has(rule.cve)) throw new Error(`missing or duplicate CVE rule: ${rule.cve}`);
+      rules.set(rule.cve, rule);
+    }
   }
-
-  const rules = {};
-  for (const f of readdirSync(path.join(WS, "rules")).filter(
-    (f) => f.endsWith(".yaml") && f !== "verdict.yaml",
-  )) {
-    const doc = readYaml(path.join("rules", f));
-    for (const r of doc.rules || []) rules[r.cve] = r;
-  }
-  const rule = rules[alert.advisory.cve_id];
-  if (!rule) {
-    return {
-      cveId: alert.advisory.cve_id,
-      ghsaId: alert.advisory.ghsa_id,
-      package: alert.vulnerability.package,
-      verdict: "unknown",
-      confidence: "low",
-      reason: "no rule for this CVE",
-      evidence: [],
-      fix: [],
-    };
-  }
-
-  const deps = readJson(path.join("repo", "dependencies.json")).dependencies || [];
+  const rule = rules.get(alert.advisory.cve_id);
+  if (!rule) return unknownResponse(request, "no rule for this CVE");
+  const dependencyDoc = readJson(path.join("repo", "dependencies.json"));
   const usage = readJson(path.join("repo", "usage.json")).evidence || {};
-  const dep = deps.find((d) => d.package === alert.vulnerability.package);
-  return judge(alert, rule, dep, usage[alert.vulnerability.package]);
+  const dep = (dependencyDoc.dependencies || []).find((item) => item.package === alert.vulnerability.package);
+  return judge(alert, rule, dep, usage[alert.vulnerability.package], dependencyDoc.source || {});
 }
 
 async function main() {
   const { defineService, runServiceMain } = await import("@chaitin-ai/octobus-sdk");
-  const service = defineService({
-    handlers: {
-      "vulnreach.v1.VulnReachService/CheckReachability": checkReachabilityHandler,
-    },
-  });
-  runServiceMain(service);
+  runServiceMain(defineService({ handlers: { "vulnreach.v1.VulnReachService/CheckReachability": checkReachabilityHandler } }));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  main().catch((error) => { console.error(error); process.exit(1); });
 }
