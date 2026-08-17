@@ -2,6 +2,8 @@
 
 本仓库包含一套可复现的 Agent-Compose + OctoBus 部署，以及考核应用 `vuln-reach`。它分析 GitHub Dependabot 告警，用确定性规则和代码行证据判断漏洞是否可达，再由 Agent 调用 OctoBus 能力做异构交叉验证并生成报告。
 
+仓库只保存自研 Agent、能力服务、规则、测试和可复现的部署配置，不复制 Agent-Compose 与 OctoBus 的上游源码。两套平台通过官方容器镜像部署；密钥、Token、运行数据库、Docker volume 和现场日志均不进入 Git。
+
 ## 架构与考核点
 
 ```text
@@ -31,6 +33,15 @@ Dependabot 告警 → normalize.py → 统一告警契约
 | 自定义 Guest | 基于官方 `v2607.10.0`，额外安装 `PyYAML==6.0.2` |
 | OctoBus | `.env` 中可替换；首次拉取后建议将 `latest` 改成已验证 digest |
 | Node.js 能力依赖 | `package-lock.json` 锁定 |
+
+## 交付与验收环境
+
+- SSH 地址：`8.130.33.113`
+- 用户名：`root`
+- SSH 端口：`22`
+- 认证方式：SSH 公钥；收到考官公钥后写入 `/root/.ssh/authorized_keys`
+
+服务端口 `7410` 与 `9000` 仅绑定本机回环地址，云安全组不放行这两个端口。仓库与文档不提供 SSH 密码、模型密钥或 OctoBus Token。
 
 ## 全新安装
 
@@ -78,7 +89,8 @@ docker compose ps
 
 ```bash
 cd /opt/agent-compose/data/projects
-git clone https://github.com/tt9133github/vuln-reach.git vuln-reach
+git clone --branch main --single-branch \
+  https://github.com/tt9133github/vuln-reach.git vuln-reach
 cd vuln-reach
 ```
 
@@ -123,6 +135,24 @@ docker exec octobus sh -c \
 ```
 
 声明式 cron 使用 UTC：`0 19 * * *` 对应北京时间次日 03:00。重启服务器后用 `docker compose ps` 确认两个服务自动恢复。
+
+## 实施问题与处理
+
+### 1. 项目路径变化会生成重复记录
+
+早期试跑时曾在不同层级放置 `agent-compose.yml`，导致 Agent-Compose 将同一应用识别为多个项目，并留下重复调度器记录。最终将仓库固定到 `/opt/agent-compose/data/projects/vuln-reach`，配置固定在仓库根目录；替换代码前先对旧配置执行 `down`。
+
+### 2. 全新数据库中 Agent 无法自动找到 OctoBus
+
+仅启动两个 daemon 并不会自动建立能力网关配置。表现为 OctoBus `status` 正常，capset 也存在，但 Guest 内没有可用能力。`scripts/configure_gateway.sh` 在部署后显式写入 OctoBus 内网地址和 Token；`scripts/deploy_octobus.sh` 再建立 `service → instance → capset → method → token` 链路，且不在终端打印 Token。
+
+### 3. Python 与 JS 双引擎可能给出不一致结论
+
+确定性研判脚本和 OctoBus 能力分别使用 Python 与 JavaScript 实现，若只同步文档而没有同步测试，规则边界容易漂移。处理方式是让两个引擎消费同一份 `workspace/` 证据，在 CI 中使用相同的 CVE 场景验证关键字段；运行时若结果不一致，最终结论必须降级为 `unknown`，不允许 Agent 任选一边。
+
+### 4. 默认暴露控制面不符合交付要求
+
+试跑阶段使用过对外发布的 UI，但控制面不应在无额外鉴权时暴露到公网。最终 Compose 不启动 UI，并将 Agent-Compose 和 OctoBus HTTP 端口均绑定到 `127.0.0.1`；对外只保留受安全组限制的 SSH。
 
 ## 判定边界与证据
 
