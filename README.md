@@ -147,23 +147,6 @@ bash run.sh
 
 `run.sh` 会重新导入本项目能力并重建 `vuln-reach/reach-01/vulnreach` 三个本项目资源，但不会删除其他 OctoBus service、instance、capset，也不会删除 named volume。
 
-## 实施问题与处理
-
-### 1. 官方一键安装器无法拉取运行镜像
-
-**现象：** 在阿里云服务器执行官方 `installer-latest` 一键安装命令时，安装脚本能够下载，但启动阶段持续拉取镜像失败。安装器解析出的镜像包括 `docker.io/chaitin/agent-compose:v2608.3.0` 和 `docker.io/chaitin/agent-compose-ui:v2608.2.0`；改为源码构建后，构建所需的 `docker.io/library/golang:1.26.4-alpine` 也无法拉取。
-
-**定位：** 将管道命令拆开，单独保存并执行 `install.sh`，再结合独立 `docker pull` 和 Docker daemon 日志排查。日志显示，国内 Docker Hub 代理分别出现镜像或标签未同步的 `404`、allowlist 拒绝的 `403`、`502`、DNS/TLS 异常和连接超时，最终回退 `registry-1.docker.io` 后仍超时。因此根因不是安装脚本无法下载或官方镜像内容损坏，而是安装器选用的 Docker Hub 拉取链路与当前网络、镜像代理不兼容。
-
-**处理：** 不再依赖安装器自动选择镜像，在 `deploy/docker-compose.yml` 中显式使用考核文档指定的官方 GHCR 镜像，并将 Agent-Compose daemon/guest 固定为已验证兼容的 `v2607.10.0`。GHCR 直连不稳定时曾通过国内 GHCR 代理完成拉取，并用 digest 与 OCI source 标签核对上游来源；随后由 `docker compose pull`、`docker compose up -d` 统一管理 Agent-Compose 与 OctoBus。Compose 提供的是可控、可复现的编排，真正绕开故障的是显式控制镜像仓库和版本。
-
-**改进：** 部署前分别探测 GitHub Release、GHCR 和基础镜像的可达性；生产部署固定版本及 digest，不依赖 `latest` 或镜像站是否及时同步；条件允许时将验证过的镜像同步到企业私有仓库，形成受控的镜像供应链。
-
-### 2. 仅填写环境变量不会自动配置能力网关
-
-Agent-Compose 原始设计由 Settings 页面调用 `UpdateCapabilityGatewayConfig`，将 OctoBus 地址和 Token 持久化到 `data.db`；仅在 `.env` 中填写 Token 或仅启动 Compose 不会自动完成这一步。本项目不公开 UI/控制面，因此 `scripts/configure_gateway.sh` 从 `/opt/agent-compose/.env` 读取 Token，通过本机接口完成同等配置；`scripts/deploy_octobus.sh` 则在 OctoBus 中建立 `service → instance → capset → method → token` 链路，且两个脚本均不打印 Token。
-
-单纯重建容器不会丢失配置；删除 Agent-Compose 的 `data.db`、删除 `octobus-data` volume 或更换 Token 后，才需要重新执行相应脚本，把仍保留在 `.env` 与仓库中的配置来源重新应用到平台。
 
 ## 判定边界与证据
 
@@ -194,3 +177,23 @@ Agent-Compose 原始设计由 Settings 页面调用 `UpdateCapabilityGatewayConf
 对当前固定输入和 commit，确定性预期为：`CVE-2025-70974 = reachable + L3`、`CVE-2022-25845 = reachable + L3`、`CVE-2020-13936 = unknown + L2`。最后一条不是预设结论：代码能确认 Velocity 危险调用，因此最高已证实阶段为 `L2`；但源码归档里缺少对应模板资源，无法可靠判断模板是否由攻击者控制，故三态判定按失败闭锁原则保持 `unknown`。
 
 每个成功快照位于 `workspace/runtime/snapshots/<snapshot_id>/`，包含输入清单副本、固定告警、实际读取的源码、依赖清单、使用证据与 `provenance.json`。`workspace/runtime/current.json` 只在新快照完整落盘后原子切换。`scripts/fetch_alerts.py` 和 `scripts/normalize.py` 仅保留为将来人工更新固定输入时使用的诊断/兼容工具，不属于生产执行链。
+
+
+
+## 实施问题与处理
+
+### 1. 官方一键安装器无法拉取运行镜像
+
+**现象：** 在阿里云服务器执行官方 `installer-latest` 一键安装命令时，安装脚本能够下载，但启动阶段持续拉取镜像失败。安装器解析出的镜像包括 `docker.io/chaitin/agent-compose:v2608.3.0` 和 `docker.io/chaitin/agent-compose-ui:v2608.2.0`；改为源码构建后，构建所需的 `docker.io/library/golang:1.26.4-alpine` 也无法拉取。
+
+**定位：** 将管道命令拆开，单独保存并执行 `install.sh`，再结合独立 `docker pull` 和 Docker daemon 日志排查。日志显示，国内 Docker Hub 代理分别出现镜像或标签未同步的 `404`、allowlist 拒绝的 `403`、`502`、DNS/TLS 异常和连接超时，最终回退 `registry-1.docker.io` 后仍超时。因此根因不是安装脚本无法下载或官方镜像内容损坏，而是安装器选用的 Docker Hub 拉取链路与当前网络、镜像代理不兼容。
+
+**处理：** 不再依赖安装器自动选择镜像，在 `deploy/docker-compose.yml` 中显式使用考核文档指定的官方 GHCR 镜像，并将 Agent-Compose daemon/guest 固定为已验证兼容的 `v2607.10.0`。GHCR 直连不稳定时曾通过国内 GHCR 代理完成拉取，并用 digest 与 OCI source 标签核对上游来源；随后由 `docker compose pull`、`docker compose up -d` 统一管理 Agent-Compose 与 OctoBus。Compose 提供的是可控、可复现的编排，真正绕开故障的是显式控制镜像仓库和版本。
+
+**改进：** 部署前分别探测 GitHub Release、GHCR 和基础镜像的可达性；生产部署固定版本及 digest，不依赖 `latest` 或镜像站是否及时同步；条件允许时将验证过的镜像同步到企业私有仓库，形成受控的镜像供应链。
+
+### 2. 仅填写环境变量不会自动配置能力网关
+
+Agent-Compose 原始设计由 Settings 页面调用 `UpdateCapabilityGatewayConfig`，将 OctoBus 地址和 Token 持久化到 `data.db`；仅在 `.env` 中填写 Token 或仅启动 Compose 不会自动完成这一步。本项目不公开 UI/控制面，因此 `scripts/configure_gateway.sh` 从 `/opt/agent-compose/.env` 读取 Token，通过本机接口完成同等配置；`scripts/deploy_octobus.sh` 则在 OctoBus 中建立 `service → instance → capset → method → token` 链路，且两个脚本均不打印 Token。
+
+单纯重建容器不会丢失配置；删除 Agent-Compose 的 `data.db`、删除 `octobus-data` volume 或更换 Token 后，才需要重新执行相应脚本，把仍保留在 `.env` 与仓库中的配置来源重新应用到平台。
