@@ -24,6 +24,17 @@ wait_for() {
 wait_for "OctoBus" docker exec octobus octobus --addr 127.0.0.1:9000 status
 wait_for "Agent-Compose" docker exec agent-compose agent-compose status
 
+# The imported capability runs as the unprivileged `octobus` user and writes
+# immutable snapshots through the shared /data bind mount. A fresh clone creates
+# workspace/runtime as root:root, so make that generated directory writable by
+# the exact numeric uid/gid used inside the official OctoBus image.
+OCTOBUS_UID="$(docker exec octobus id -u octobus)"
+OCTOBUS_GID="$(docker exec octobus id -g octobus)"
+install -d -m 0755 "${PROJECT_DIR}/workspace/runtime" "${PROJECT_DIR}/workspace/report"
+chown -R "${OCTOBUS_UID}:${OCTOBUS_GID}" "${PROJECT_DIR}/workspace/runtime"
+chmod -R u+rwX,go+rX "${PROJECT_DIR}/workspace/runtime"
+unset OCTOBUS_UID OCTOBUS_GID
+
 echo "=== configure gateway and deploy capability ==="
 bash "${PROJECT_DIR}/scripts/configure_gateway.sh"
 bash "${PROJECT_DIR}/scripts/deploy_octobus.sh" >/dev/null

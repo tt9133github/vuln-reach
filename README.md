@@ -65,6 +65,7 @@ unset token
 - Docker named volume `octobus-data:/var/lib/octobus`：OctoBus 服务、实例、capset 与审计日志。
 - `/var/run/docker.sock`：Agent-Compose 创建 Guest 沙箱所需。
 - `agent-compose.yml` 将 `./workspace/runtime` 只读挂载到 Guest，使运行中可以读取 OctoBus 新生成的快照；同时将 `./workspace/report` 可写挂载到 Guest，保证手工任务和定时任务的报告回写项目目录。
+- `run.sh` 会读取官方 OctoBus 容器内 `octobus` 用户的实际 UID/GID，并幂等修正 `workspace/runtime` 属主；因此全新 clone 后无需手工 `chmod 777`，能力服务也能通过共享 `/data` 写入快照。
 
 
 ### 2. 启动基础平台
