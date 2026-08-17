@@ -4,6 +4,15 @@
 
 仓库只保存自研 Agent、能力服务、规则、测试和可复现的部署配置，不复制 Agent-Compose 与 OctoBus 的上游源码。两套平台通过官方容器镜像部署；密钥、Token、运行数据库、Docker volume 和现场日志均不进入 Git。
 
+## 考官验收登录信息
+
+- SSH 地址：`8.130.33.113`
+- 用户名：`root`
+- 端口：`22`
+- 认证方式：考官 SSH 公钥；密码、私钥和平台 Token 不进入仓库
+
+Agent-Compose 与 OctoBus 的宿主机端口仅绑定 `127.0.0.1`，安全组无需开放 `7410/9000`；仅按考官来源开放 SSH。
+
 ## 架构
 
 ```text
@@ -178,6 +187,14 @@ bash run.sh
 
 每个成功快照位于 `workspace/runtime/snapshots/<snapshot_id>/`，包含输入清单副本、固定告警、实际读取的源码、依赖清单、使用证据与 `provenance.json`。`workspace/runtime/current.json` 只在新快照完整落盘后原子切换。`scripts/fetch_alerts.py` 和 `scripts/normalize.py` 仅保留为将来人工更新固定输入时使用的诊断/兼容工具，不属于生产执行链。
 
+本地回归可执行：
+
+```bash
+python -m pip install -r guest/requirements.txt
+python -m unittest discover -s tests -v
+cd octobus && npm ci && VULN_REACH_LIVE_SOURCE=1 npm test
+```
+
 
 
 ## 实施问题与处理
@@ -197,3 +214,9 @@ bash run.sh
 Agent-Compose 原始设计由 Settings 页面调用 `UpdateCapabilityGatewayConfig`，将 OctoBus 地址和 Token 持久化到 `data.db`；仅在 `.env` 中填写 Token 或仅启动 Compose 不会自动完成这一步。本项目不公开 UI/控制面，因此 `scripts/configure_gateway.sh` 从 `/opt/agent-compose/.env` 读取 Token，通过本机接口完成同等配置；`scripts/deploy_octobus.sh` 则在 OctoBus 中建立 `service → instance → capset → method → token` 链路，且两个脚本均不打印 Token。
 
 单纯重建容器不会丢失配置；删除 Agent-Compose 的 `data.db`、删除 `octobus-data` volume 或更换 Token 后，才需要重新执行相应脚本，把仍保留在 `.env` 与仓库中的配置来源重新应用到平台。
+
+### 3. OctoBus 能力无法创建 runtime snapshot
+
+**现象：** Agent 在 `BuildRepositoryEvidence` 后反复重试，最终以 `deadline_exceeded` 结束；OctoBus 审计只显示 gRPC `Internal`。
+
+**定位与处理：** 绕过 Agent 网关直连能力实例后得到 `EACCES: permission denied, mkdir .../workspace/runtime/snapshots`。官方 OctoBus 镜像以内置非 root 用户运行，而全新 clone 的目录属主为 root。`run.sh` 现在从容器读取该用户的实际 UID/GID，幂等修正仅用于生成快照的 `workspace/runtime`，不使用 `chmod 777`，随后直接能力调用、完整 Agent 运行和审计校验均通过。

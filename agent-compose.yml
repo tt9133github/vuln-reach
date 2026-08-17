@@ -36,7 +36,7 @@ agents:
       2. 只用 `test -n "${CAP_TOKEN:-}"` 检查沙箱 Token，禁止打印 Token 或执行 `env | grep CAP`。
       3. 运行 `python3 /workspace/scripts/run_pipeline.py`。该脚本会先通过 OctoBus 调用 BuildRepositoryEvidence，校验仓库内固定的真实 Dependabot 告警输入，获取固定 commit 的公开源码并由代码重新解析依赖和使用证据，生成不可变快照；随后对每条告警调用 CheckReachability，由 OctoBus 输出唯一的确定性判定。
       4. 阅读 /workspace/report/snapshot.json、verdicts.json、reachability-report.md，以及当前快照的 provenance.json。只在解释证据确有必要时读取报告引用的少量源码行，不要把整个工程发送给模型。
-      5. 输出 /workspace/report/agent-report.md。每条告警必须包含 CVE/GHSA、状态、依赖及版本、最终判定、置信度、企业可达性等级、等级理由、治理动作、rule_id、snapshot_id、source commit、文件行号证据、限制和修复建议。
+      5. 输出 /workspace/report/agent-report.md。每条告警必须包含 CVE/GHSA、告警状态与公开严重度、依赖及版本、最终判定、置信度、企业可达性等级、等级理由、治理动作、rule_id、snapshot_id、source commit、文件行号证据、限制和修复建议。
       6. 不得自行改写 verdicts.json 中由 OctoBus 生成的确定性判定和 Level 0-4 分级；证据不足时保留能力返回的 unknown。
 
       判定含义：reachable 表示在规则声明的边界内版本、危险 sink 和前置条件都有证据；not_reachable 表示至少一个必要条件有完整反证；unknown 表示证据不完整或解析失败。Level 0-4 表示最高已证实的攻击链阶段，不替代 CVSS。库项目 public API 参数由调用者控制并到达 sink 可判 L3，但不等于公网暴露，也不等于已验证利用成功；L4 仍需完整利用条件。

@@ -25,12 +25,15 @@ for report in snapshot.json verdicts.json reachability-report.md agent-report.md
   }
 done
 
-python3 - "${PROJECT_DIR}/workspace/report/verdicts.json" <<'PY'
+python3 - \
+  "${PROJECT_DIR}/workspace/report/verdicts.json" \
+  "${PROJECT_DIR}/workspace/report/agent-report.md" <<'PY'
 import json
 import sys
 
 report = json.load(open(sys.argv[1], encoding="utf-8"))
-if report.get("schema_version") != "verdict/4.0":
+agent_report = open(sys.argv[2], encoding="utf-8").read()
+if report.get("schema_version") != "verdict/4.1":
     raise SystemExit(f"unexpected verdict schema: {report.get('schema_version')!r}")
 
 expected = {
@@ -46,10 +49,15 @@ if actual != expected:
     raise SystemExit(f"unexpected verdict/level results: {actual!r}")
 
 for item in report["verdicts"]:
-    required = ("level_reason", "governance_action", "level_checks")
+    required = ("state", "severity", "level_reason", "governance_action", "level_checks")
     missing = [name for name in required if not item.get(name)]
     if missing:
         raise SystemExit(f"{item.get('cve_id')} missing level fields: {missing}")
+    for expected_text in (item["cve_id"], item["rule_id"], item["reachability_level"]):
+        if expected_text not in agent_report:
+            raise SystemExit(f"agent report does not contain {expected_text!r}")
+if report.get("snapshot_id") not in agent_report:
+    raise SystemExit("agent report does not contain the deterministic snapshot id")
 print("verdict/level assertions passed")
 PY
 

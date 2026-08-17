@@ -10,7 +10,8 @@ rules:
     affected_versions: "<= 2.2"
     fixed_version: "2.3"
     scope: "目标仓库内模板加载路径与模板来源"
-    sinks: []
+    sinks:
+      - api: "VelocityEngine.getTemplate(String)"
     preconditions:
       - id: attacker_controls_template
         description: "攻击者能够修改或控制 Velocity 模板内容"

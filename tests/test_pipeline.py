@@ -15,6 +15,8 @@ class PipelineTest(unittest.TestCase):
             "cveId": "CVE-TEST",
             "ghsaId": "GHSA-TEST",
             "alertNumber": 7,
+            "alertState": "open",
+            "advisorySeverity": "high",
             "package": "g:a",
             "installedVersion": "1.0",
             "affectedVersions": "< 2.0",
@@ -52,6 +54,7 @@ class PipelineTest(unittest.TestCase):
 
         self.assertEqual(verdict["verdict"], "reachable")
         self.assertEqual(verdict["rule_id"], "rule-test")
+        self.assertEqual((verdict["state"], verdict["severity"]), ("open", "high"))
         self.assertEqual(verdict["reachability_level"], "L3")
         self.assertEqual(verdict["level_checks"]["complete_attack_path"], "unknown")
         self.assertEqual(verdict["checks"]["preconditions"], {"input_controlled": "pass"})
@@ -59,6 +62,7 @@ class PipelineTest(unittest.TestCase):
             [verdict], {"snapshotId": "snapshot-1", "resolvedCommit": "abc"}, "2026-01-01T00:00:00Z"
         )
         self.assertIn("CVE-TEST — REACHABLE", report)
+        self.assertIn("`open` / `high`", report)
         self.assertIn("level: **L3**", report)
         self.assertIn("high-priority remediation", report)
         self.assertIn("Example.java:42", report)

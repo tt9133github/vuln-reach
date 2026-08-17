@@ -21,6 +21,8 @@ test("fixed analysis fixture produces expected verdicts", () => {
   const secondFastjson = checkReachabilityAt(FIXTURE, { cveId: "CVE-2022-25845" }, "fixture", INPUTS);
   const velocity = checkReachabilityAt(FIXTURE, { cveId: "CVE-2020-13936" }, "fixture", INPUTS);
   assert.equal(firstFastjson.verdict, "reachable");
+  assert.equal(firstFastjson.alertState, "open");
+  assert.ok(firstFastjson.advisorySeverity);
   assert.equal(secondFastjson.verdict, "reachable");
   assert.equal(velocity.verdict, "unknown");
   assert.equal(firstFastjson.reachabilityLevel, "L3");
@@ -50,6 +52,16 @@ test("enterprise levels represent the highest proven attack-chain stage", () => 
   assert.equal(level({ sinks: [{ api: "danger" }], flows: [{ external: true }], runtime: { exploitable: true } }), "L4");
   assert.equal(level({}, true), "unknown");
   assert.equal(level({}, false), "NA");
+});
+
+test("missing level knowledge fails closed instead of becoming L0", () => {
+  const result = classifyReachabilityLevel(
+    { level_evidence: {} },
+    { component_usage_scan_complete: true, sink_scan_complete: true },
+    true,
+  );
+  assert.equal(result.level, "unknown");
+  assert.match(result.reason, /does not define required level evidence/);
 });
 
 test("selector parser supports protobuf-es oneof and flat compatibility requests", () => {
@@ -94,4 +106,26 @@ test("incomplete negative evidence remains unknown", () => {
   const result = judge(syntheticAlert, syntheticRule, { package: "g:a", version: "1.0" }, { sinks: [] }, { authoritative: true });
   assert.equal(result.verdict, "unknown");
   assert.equal(result.checks.sinkPresent, "unknown");
+});
+
+test("Velocity requires its rule-defined dangerous API", () => {
+  const alert = { alert: { number: 1, state: "open" }, advisory: { cve_id: "CVE-V", ghsa_id: "GHSA-V", severity: "high" }, vulnerability: { package: "g:v" } };
+  const rule = {
+    rule_id: "velocity-test", affected_versions: "< 2.0",
+    sinks: [{ api: "VelocityEngine.getTemplate(String)" }],
+    preconditions: [{ id: "controlled", description: "controlled template", evidence_path: "template_control", expect: "attacker_controlled" }],
+    level_evidence: {
+      component_usage: { evidence_path: "usage[*]" },
+      dangerous_sink: { evidence_path: "usage[*]", field: "api", expect: "VelocityEngine.getTemplate(String)" },
+      external_input_to_sink: { evidence_path: "template_control", expect: "attacker_controlled" },
+      complete_attack_path: { all: [{ evidence_path: "runtime.exploitable", expect: true }] },
+    },
+  };
+  const result = judge(alert, rule, { package: "g:v", version: "1.0" }, {
+    sink_scan_complete: true,
+    usage: [{ api: "VelocityEngine.init(Properties)" }],
+    template_control: "attacker_controlled",
+  }, { authoritative: true });
+  assert.equal(result.verdict, "not_reachable");
+  assert.equal(result.checks.sinkPresent, "fail");
 });

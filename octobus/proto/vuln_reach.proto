@@ -50,6 +50,8 @@ message CheckReachabilityResponse {
   string level_reason = 20 [json_name = "levelReason"];
   string governance_action = 21 [json_name = "governanceAction"];
   ReachabilityLevelChecks level_checks = 22 [json_name = "levelChecks"];
+  string alert_state = 23 [json_name = "alertState"];
+  string advisory_severity = 24 [json_name = "advisorySeverity"];
 }
 
 message ReachabilityLevelChecks {

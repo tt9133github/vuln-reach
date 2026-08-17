@@ -115,6 +115,21 @@ export function classifyReachabilityLevel(rule, evidence, versionMatch, policy =
   }
 
   const signals = rule.level_evidence || {};
+  const requiredSignals = ["component_usage", "dangerous_sink", "external_input_to_sink", "complete_attack_path"];
+  const missingSignals = requiredSignals.filter((name) => !signals[name]);
+  if (missingSignals.length > 0) {
+    return {
+      level: "unknown",
+      reason: `rule does not define required level evidence: ${missingSignals.join(", ")}`,
+      governanceAction: "补齐规则证据映射后重新分级",
+      checks: {
+        componentUsage: "unknown",
+        dangerousSink: "unknown",
+        externalInputToSink: "unknown",
+        completeAttackPath: "unknown",
+      },
+    };
+  }
   const componentUsage = signalEstablished(evidence, signals.component_usage);
   const dangerousSink = signalEstablished(evidence, signals.dangerous_sink);
   const externalInput = signalEstablished(evidence, signals.external_input_to_sink);
@@ -163,7 +178,8 @@ function evidenceItem(ruleId, check, value, detail, fields = {}) {
 function checkSink(evidence, patterns) {
   if (patterns.length === 0) return [true, "rule has no fixed sink API; usage evidence is evaluated by preconditions", evidence?.usage || []];
   if (!evidence) return [null, "package usage evidence is missing", []];
-  const matches = (evidence.sinks || []).filter((item) => patterns.includes(item.api));
+  const candidates = [...(evidence.sinks || []), ...(evidence.usage || [])];
+  const matches = candidates.filter((item) => patterns.includes(item.api));
   if (matches.length > 0) return [true, `matched ${matches.length} rule-defined sink call(s)`, matches];
   if (evidence.sink_scan_complete === true) return [false, "complete sink scan found no rule-defined call", []];
   return [null, "no matching sink found, but sink scan completeness is not established", []];
@@ -219,7 +235,8 @@ export function judge(alert, rule, dep, evidence, source = {}, snapshotId = "", 
 
   return {
     cveId: alert.advisory.cve_id, ghsaId: alert.advisory.ghsa_id,
-    alertNumber: alert.alert.number, package: alert.vulnerability.package,
+    alertNumber: alert.alert.number, alertState: alert.alert.state || "",
+    advisorySeverity: alert.advisory.severity || "", package: alert.vulnerability.package,
     installedVersion: installed, affectedVersions: rule.affected_versions || "",
     fixedVersion: rule.fixed_version || "", ruleId: rule.rule_id,
     sourceCommit: source.commit || "", snapshotId, scope: rule.scope || "component API boundary",

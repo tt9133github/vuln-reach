@@ -42,6 +42,8 @@ def normalize_verdict(remote: dict) -> dict:
         "cve_id": remote.get("cveId", ""),
         "ghsa_id": remote.get("ghsaId", ""),
         "alert_number": remote.get("alertNumber", 0),
+        "state": remote.get("alertState", ""),
+        "severity": remote.get("advisorySeverity", ""),
         "package": remote.get("package", ""),
         "installed_version": remote.get("installedVersion", ""),
         "affected_versions": remote.get("affectedVersions", ""),
@@ -101,6 +103,7 @@ def build_markdown(verdicts: list[dict], snapshot: dict, generated_at: str) -> s
         lines += [
             f"## #{value['alert_number']} {value['cve_id']} — {value['verdict'].upper()} ({value['confidence']})", "",
             f"- package: `{value['package']}:{value['installed_version'] or 'not found'}`",
+            f"- alert state/severity: `{value['state'] or 'unknown'}` / `{value['severity'] or 'unknown'}`",
             f"- affected/fixed: `{value['affected_versions']}` / `{value['fixed_version'] or 'n/a'}`",
             f"- rule: `{value['rule_id'] or 'none'}`",
             f"- scope: {value['scope']}",
@@ -172,7 +175,7 @@ def main() -> int:
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     (REPORT / "verdicts.json").write_text(json.dumps({
-        "schema_version": "verdict/4.0", "generated_at": generated_at,
+        "schema_version": "verdict/4.1", "generated_at": generated_at,
         "snapshot_id": snapshot_id, "source": "octobus", "verdicts": verdicts,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (REPORT / "reachability-report.md").write_text(

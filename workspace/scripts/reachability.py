@@ -105,7 +105,8 @@ def check_sink(evidence: dict | None, patterns: list[str]) -> tuple[bool | None,
         return True, "rule has no fixed sink API; usage evidence is evaluated by preconditions", (evidence or {}).get("usage", [])
     if not evidence:
         return None, "package usage evidence is missing", []
-    matches = [item for item in evidence.get("sinks", []) if item.get("api") in patterns]
+    candidates = [*evidence.get("sinks", []), *evidence.get("usage", [])]
+    matches = [item for item in candidates if item.get("api") in patterns]
     if matches:
         return True, f"matched {len(matches)} rule-defined sink call(s)", matches
     if evidence.get("sink_scan_complete") is True:
