@@ -148,21 +148,9 @@ docker exec octobus sh -c \
 
 **改进：** 部署前分别探测 GitHub Release、GHCR 和基础镜像的可达性；生产部署固定版本及 digest，不依赖 `latest` 或镜像站是否及时同步；条件允许时将验证过的镜像同步到企业私有仓库，形成受控的镜像供应链。
 
-### 2. 项目路径变化会生成重复记录
+### 2. 重建数据卷后能力网关配置需要恢复
 
-早期试跑时曾在不同层级放置 `agent-compose.yml`，导致 Agent-Compose 将同一应用识别为多个项目，并留下重复调度器记录。最终将仓库固定到 `/opt/agent-compose/data/projects/vuln-reach`，配置固定在仓库根目录；替换代码前先对旧配置执行 `down`。
-
-### 3. 全新数据库中 Agent 无法自动找到 OctoBus
-
-仅启动两个 daemon 并不会自动建立能力网关配置。表现为 OctoBus `status` 正常，capset 也存在，但 Guest 内没有可用能力。`scripts/configure_gateway.sh` 在部署后显式写入 OctoBus 内网地址和 Token；`scripts/deploy_octobus.sh` 再建立 `service → instance → capset → method → token` 链路，且不在终端打印 Token。
-
-### 4. Python 与 JS 双引擎可能给出不一致结论
-
-确定性研判脚本和 OctoBus 能力分别使用 Python 与 JavaScript 实现，若只同步文档而没有同步测试，规则边界容易漂移。处理方式是让两个引擎消费同一份 `workspace/` 证据，在 CI 中使用相同的 CVE 场景验证关键字段；运行时若结果不一致，最终结论必须降级为 `unknown`，不允许 Agent 任选一边。
-
-### 5. 默认暴露控制面不符合交付要求
-
-试跑阶段使用过对外发布的 UI，但控制面不应在无额外鉴权时暴露到公网。最终 Compose 不启动 UI，并将 Agent-Compose 和 OctoBus HTTP 端口均绑定到 `127.0.0.1`；对外只保留受安全组限制的 SSH。
+Docker Compose 只负责启动容器和建立网络，不会自动完成 Agent-Compose 与 OctoBus 的应用层配置。重建运行数据库或 Docker volume 后，即使两个 daemon 和 OctoBus `status` 均正常，原有的网关地址、capset 和 Token 也需要重新配置。`scripts/configure_gateway.sh` 显式写入 OctoBus 内网地址和 Token；`scripts/deploy_octobus.sh` 建立 `service → instance → capset → method → token` 链路，且不在终端打印 Token。
 
 ## 判定边界与证据
 
