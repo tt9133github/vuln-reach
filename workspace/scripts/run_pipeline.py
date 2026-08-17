@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Build evidence through OctoBus, run the local engine, and cross-check every verdict."""
+"""Build repository evidence and obtain every verdict through OctoBus."""
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,77 +35,130 @@ def grpc_call(method: str, payload: dict) -> dict:
     return json.loads(completed.stdout)
 
 
-def comparable(local: dict, remote: dict) -> dict:
+def normalize_verdict(remote: dict) -> dict:
+    checks = remote.get("checks") or {}
     return {
-        "verdict": (local.get("verdict"), remote.get("verdict")),
-        "package": (local.get("package") or "", remote.get("package") or ""),
-        "installed_version": (local.get("installed_version") or "", remote.get("installedVersion") or ""),
-        "rule_id": (local.get("rule_id") or "", remote.get("ruleId") or ""),
-        "source_commit": (local.get("source_commit") or "", remote.get("sourceCommit") or ""),
-        "snapshot_id": (local.get("snapshot_id") or "", remote.get("snapshotId") or ""),
-        "version_match": (
-            {True: "pass", False: "fail", None: "unknown"}.get(local.get("checks", {}).get("version_match"), ""),
-            remote.get("checks", {}).get("versionMatch", ""),
-        ),
-        "sink_present": (
-            {True: "pass", False: "fail", None: "unknown"}.get(local.get("checks", {}).get("sink_present"), ""),
-            remote.get("checks", {}).get("sinkPresent", ""),
-        ),
-        "preconditions": (
-            sorted((name, {True: "pass", False: "fail", None: "unknown"}.get(value, "")) for name, value in local.get("checks", {}).get("preconditions", {}).items()),
-            sorted((item.get("id", ""), item.get("status", "")) for item in remote.get("checks", {}).get("preconditions", [])),
-        ),
+        "cve_id": remote.get("cveId", ""),
+        "ghsa_id": remote.get("ghsaId", ""),
+        "alert_number": remote.get("alertNumber", 0),
+        "package": remote.get("package", ""),
+        "installed_version": remote.get("installedVersion", ""),
+        "affected_versions": remote.get("affectedVersions", ""),
+        "fixed_version": remote.get("fixedVersion", ""),
+        "rule_id": remote.get("ruleId", ""),
+        "source_commit": remote.get("sourceCommit", ""),
+        "snapshot_id": remote.get("snapshotId", ""),
+        "scope": remote.get("scope", ""),
+        "limitations": remote.get("limitations", []),
+        "checks": {
+            "version_match": checks.get("versionMatch", "unknown"),
+            "sink_present": checks.get("sinkPresent", "unknown"),
+            "preconditions": {
+                item.get("id", ""): item.get("status", "unknown")
+                for item in checks.get("preconditions", [])
+                if item.get("id")
+            },
+        },
+        "verdict": remote.get("verdict", "unknown"),
+        "confidence": remote.get("confidence", "low"),
+        "verdict_reason": remote.get("reason", ""),
+        "evidence": [
+            {
+                "rule_id": item.get("ruleId", ""),
+                "check": item.get("check", ""),
+                "status": item.get("status", "unknown"),
+                "detail": item.get("detail", ""),
+                "file": item.get("file", ""),
+                "line": item.get("line", 0),
+                "observed": item.get("observed", ""),
+                "expected": item.get("expected", ""),
+            }
+            for item in remote.get("evidence", [])
+        ],
+        "fix": remote.get("fix", []),
     }
+
+
+def build_markdown(verdicts: list[dict], snapshot: dict, generated_at: str) -> str:
+    lines = [
+        "# Vulnerability Reachability Report", "",
+        f"- generated_at: {generated_at}",
+        f"- snapshot_id: `{snapshot.get('snapshotId', '')}`",
+        f"- source commit: `{snapshot.get('resolvedCommit', '')}`",
+        f"- alerts analyzed: {len(verdicts)}", "",
+    ]
+    for value in sorted(verdicts, key=lambda item: item["alert_number"]):
+        lines += [
+            f"## #{value['alert_number']} {value['cve_id']} — {value['verdict'].upper()} ({value['confidence']})", "",
+            f"- package: `{value['package']}:{value['installed_version'] or 'not found'}`",
+            f"- affected/fixed: `{value['affected_versions']}` / `{value['fixed_version'] or 'n/a'}`",
+            f"- rule: `{value['rule_id'] or 'none'}`",
+            f"- scope: {value['scope']}",
+            f"- verdict reason: {value['verdict_reason']}", "", "### Checks", "",
+            f"- version_match: {value['checks']['version_match'].upper()}",
+            f"- sink_present: {value['checks']['sink_present'].upper()}",
+        ]
+        lines.extend(
+            f"- precondition `{name}`: {status.upper()}"
+            for name, status in value["checks"]["preconditions"].items()
+        )
+        lines += ["", "### Evidence", ""]
+        for item in value["evidence"]:
+            location = f" ({item['file']}:{item['line']})" if item["file"] and item["line"] else ""
+            lines.append(f"- [{item['status'].upper()}] `{item['rule_id']}` `{item['check']}`{location}: {item['detail']}")
+        lines += ["", "### Limitations", ""]
+        lines.extend(f"- {item}" for item in value["limitations"])
+        lines += ["", "### Fix", ""]
+        lines.extend(f"- {item}" for item in value["fix"])
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def snapshot_alerts(snapshot_id: str) -> list[dict]:
+    if not re.fullmatch(r"[0-9A-Za-z._-]+", snapshot_id):
+        raise RuntimeError("snapshot response returned an invalid snapshotId")
+    alerts_dir = ROOT / "runtime" / "snapshots" / snapshot_id / "alerts"
+    if not alerts_dir.is_dir():
+        raise RuntimeError(f"snapshot alerts are not visible in the Guest: {alerts_dir}")
+    alerts = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(alerts_dir.glob("*.json"))
+        if path.name != "index.json"
+    ]
+    if not alerts:
+        raise RuntimeError("snapshot contains no alerts")
+    return alerts
 
 
 def main() -> int:
     REPORT.mkdir(parents=True, exist_ok=True)
+    for obsolete in ("verified-verdicts.json", "cross-check.json"):
+        (REPORT / obsolete).unlink(missing_ok=True)
+
     snapshot = grpc_call("BuildRepositoryEvidence", {})
     snapshot_id = str(snapshot.get("snapshotId", ""))
     if not snapshot_id:
         raise RuntimeError("snapshot response did not contain snapshotId")
     (REPORT / "snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "reachability.py"), "--snapshot-id", snapshot_id],
-        check=True,
-        cwd=ROOT,
-    )
-    local_doc = json.loads((REPORT / "verdicts.json").read_text(encoding="utf-8"))
-    verified = []
-    comparisons = []
-    for local in local_doc.get("verdicts", []):
+    verdicts = []
+    for alert in snapshot_alerts(snapshot_id):
         selector = {"snapshotId": snapshot_id}
-        if local.get("cve_id"):
-            selector["cveId"] = local["cve_id"]
+        if alert.get("advisory", {}).get("cve_id"):
+            selector["cveId"] = alert["advisory"]["cve_id"]
         else:
-            selector["alertNumber"] = local["alert_number"]
-        remote = grpc_call("CheckReachability", selector)
-        fields = comparable(local, remote)
-        mismatches = [name for name, values in fields.items() if values[0] != values[1]]
-        final = dict(local)
-        if mismatches:
-            final["verdict"] = "unknown"
-            final["confidence"] = "low"
-            final["verdict_reason"] = f"Python/OctoBus mismatch: {', '.join(mismatches)}"
-        verified.append(final)
-        comparisons.append({
-            "cve_id": local.get("cve_id", ""), "alert_number": local.get("alert_number", 0),
-            "matched": not mismatches, "mismatches": mismatches, "fields": fields,
-            "octobus": remote,
-        })
+            selector["alertNumber"] = alert["alert"]["number"]
+        verdicts.append(normalize_verdict(grpc_call("CheckReachability", selector)))
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    (REPORT / "verified-verdicts.json").write_text(json.dumps({
-        "schema_version": "verified-verdict/1.0", "generated_at": generated_at,
-        "snapshot_id": snapshot_id, "verdicts": verified,
+    (REPORT / "verdicts.json").write_text(json.dumps({
+        "schema_version": "verdict/3.0", "generated_at": generated_at,
+        "snapshot_id": snapshot_id, "source": "octobus", "verdicts": verdicts,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (REPORT / "cross-check.json").write_text(json.dumps({
-        "schema_version": "cross-check/1.0", "generated_at": generated_at,
-        "snapshot_id": snapshot_id, "all_matched": all(item["matched"] for item in comparisons),
-        "comparisons": comparisons,
-    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"pipeline complete: snapshot={snapshot_id}, alerts={len(verified)}, all_matched={all(item['matched'] for item in comparisons)}")
+    (REPORT / "reachability-report.md").write_text(
+        build_markdown(verdicts, snapshot, generated_at), encoding="utf-8"
+    )
+    print(f"pipeline complete: snapshot={snapshot_id}, alerts={len(verdicts)}, source=octobus")
     return 0
 
 

@@ -1,6 +1,6 @@
 # vuln-reach：组件漏洞可达性研判 Agent
 
-本仓库包含一套可复现的 Agent-Compose + OctoBus 部署，以及考核应用 `vuln-reach`。它分析 GitHub Dependabot 告警，用确定性规则和代码行证据判断漏洞是否可达，再由 Agent 调用 OctoBus 能力做异构交叉验证并生成报告。
+本仓库包含一套可复现的 Agent-Compose + OctoBus 部署，以及考核应用 `vuln-reach`。它分析 GitHub Dependabot 告警，由 OctoBus 能力基于确定性规则和代码行证据判断漏洞是否可达，再由 Agent 整理证据并生成报告。
 
 仓库只保存自研 Agent、能力服务、规则、测试和可复现的部署配置，不复制 Agent-Compose 与 OctoBus 的上游源码。两套平台通过官方容器镜像部署；密钥、Token、运行数据库、Docker volume 和现场日志均不进入 Git。
 
@@ -11,10 +11,10 @@
                       ├─ OctoBus.BuildRepositoryEvidence ─→ 不可变 runtime snapshot
 公开仓库固定 commit ──┘          │ 告警 + pom.xml + Java/资源源码 + provenance
                                  │
-                    ┌────────────┴────────────┐
-                    │ Python 确定性引擎       │ OctoBus.CheckReachability
-                    └────────────┬────────────┘
-                                 │ 同一 snapshot_id 的关键字段必须一致
+                    OctoBus.CheckReachability × 每条告警
+                                 │ 唯一确定性判定来源
+                    verdicts.json + reachability-report.md
+                                 │
                          Agent 只解释证据并输出报告
 ```
 
@@ -126,8 +126,6 @@ bash run.sh
 workspace/report/verdicts.json
 workspace/report/reachability-report.md
 workspace/report/snapshot.json
-workspace/report/verified-verdicts.json
-workspace/report/cross-check.json
 workspace/report/agent-report.md
 workspace/runtime/current.json
 workspace/runtime/snapshots/<snapshot_id>/provenance.json
@@ -215,4 +213,4 @@ python -m unittest discover -s tests -v
 cd octobus && npm ci && VULN_REACH_LIVE_SOURCE=1 npm test
 ```
 
-`tests/fixtures/` 只用于无网络单元测试，正式代码没有回退到该目录的路径。`VULN_REACH_LIVE_SOURCE=1` 额外下载固定公开源码并验证真实行号及三条预期判定；CI 同时执行 Python 与 JS 共享场景、Maven 解析、源码证据生成和静态语法检查。任何新增规则都应为两个引擎补充相同预期结果。
+`tests/fixtures/` 只用于无网络单元测试，正式代码没有回退到该目录的路径。`VULN_REACH_LIVE_SOURCE=1` 额外下载固定公开源码并验证真实行号及三条预期判定；CI 校验 OctoBus 判定、Maven 解析、源码证据生成和静态语法。仓库暂时保留 Python 判定器作为离线回归参考，但它不进入正式运行链路，也不参与生产结论。

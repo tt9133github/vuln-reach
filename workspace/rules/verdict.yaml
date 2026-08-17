@@ -6,7 +6,7 @@ verdicts:
   not_reachable:
     definition: "版本未命中，或 sink 不存在，或任一前置条件明确不满足"
   unknown:
-    definition: "任何必要证据缺失、版本/约束不可解析或双引擎结果不一致时，保守判为 unknown"
+    definition: "任何必要证据缺失、版本/约束不可解析或扫描完整性不足时，保守判为 unknown"
 
 confidence:
   high: "判定依赖的证据均为文件/行号级别事实"

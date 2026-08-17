@@ -40,7 +40,7 @@ if ! docker image inspect vuln-reach-guest:v1.0.0 >/dev/null 2>&1; then
 fi
 docker exec agent-compose agent-compose -f "${PROJECT_FILE}" up
 
-PROMPT="立即执行完整证据分析闭环：先阅读 /data/runtime/mpi/catalog.md，再运行 python3 /workspace/scripts/run_pipeline.py；然后仅依据 snapshot.json、verified-verdicts.json、cross-check.json、reachability-report.md 和当前快照 provenance.json，生成 /workspace/report/agent-report.md。不得只回复计划，不得自行改写确定性判定，必要时只读取证据引用的少量源码行。"
+PROMPT="立即执行完整证据分析闭环：先阅读 /data/runtime/mpi/catalog.md，再运行 python3 /workspace/scripts/run_pipeline.py；然后仅依据 snapshot.json、verdicts.json、reachability-report.md 和当前快照 provenance.json，生成 /workspace/report/agent-report.md。不得只回复计划，不得自行改写 OctoBus 的确定性判定，必要时只读取证据引用的少量源码行。"
 
 echo "=== running agent ==="
 docker exec agent-compose agent-compose -f "${PROJECT_FILE}" run reach-analyzer --prompt "${PROMPT}" 2>&1 | tail -160
@@ -49,7 +49,7 @@ test -s "${PROJECT_DIR}/workspace/runtime/current.json" || {
   echo "missing runtime snapshot pointer" >&2
   exit 1
 }
-for report in snapshot.json verdicts.json reachability-report.md verified-verdicts.json cross-check.json agent-report.md; do
+for report in snapshot.json verdicts.json reachability-report.md agent-report.md; do
   test -s "${PROJECT_DIR}/workspace/report/${report}" || {
     echo "missing or empty report: workspace/report/${report}" >&2
     exit 1

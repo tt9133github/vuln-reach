@@ -12,14 +12,14 @@
 
 1. 通过 OctoBus `BuildRepositoryEvidence` 校验固定告警输入、下载固定 commit 并生成快照
 2. 读取同一个 `snapshot_id`，确定待研判 CVE、安装版本、sink 调用点与入口来源
-3. 运行 `python3 /workspace/scripts/reachability.py --snapshot-id <id>` 得到结构化判定
-4. 通过 OctoBus `CheckReachability` 逐条交叉验证，再输出带证据的最终报告
+3. 通过 OctoBus `CheckReachability` 对同一快照中的告警逐条执行确定性判定
+4. 将能力返回的结构化证据写入报告，Agent 只负责解释和整理
 
 ## 判定口径
 
 - `reachable`：版本命中 + sink 存在 + 全部前置条件满足
 - `not_reachable`：至少一个必要条件有完整、可追溯的反证；例如权威依赖清单确认版本未命中，或完整 sink 扫描确认不存在调用
-- `unknown`：证据缺失、版本或约束不能严格解析、扫描完整性未知，或 Python/OctoBus 双引擎结果不一致
+- `unknown`：证据缺失、版本或约束不能严格解析，或扫描完整性未知
 
 三态值为 `true / false / null`。禁止把“没有找到”自动解释成 `false`，也禁止忽略无法解析的规则片段继续给出肯定结论。
 
@@ -27,7 +27,7 @@
 
 当前 fastjson 结论覆盖目标 commit 的“组件 public API 参数到危险 sink”的代码边界。它不自动证明该 API 已由公网请求调用，也不证明运行环境存在可利用 gadget、JNDI 出网或成功 RCE。报告必须明确保留这些限制。
 
-Python 脚本与 OctoBus JS 能力是异构交叉验证。二者消费同一规则和证据，但分别实现判定；关键字段不一致时，Agent 必须降级为 `unknown` 并并列展示差异。
+正式运行以 OctoBus 能力返回为唯一确定性判定来源。Agent 不得修改判定，只能结合证据、限制和修复建议生成可读报告。
 
 ## 证据要求
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** OctoBus capability using the same rules and evidence as the Python engine. */
+/** OctoBus capability for reproducible evidence collection and reachability decisions. */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";

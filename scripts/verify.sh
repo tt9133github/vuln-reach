@@ -18,7 +18,7 @@ test -s "${PROJECT_DIR}/workspace/runtime/current.json" || {
   echo "missing runtime snapshot pointer" >&2
   exit 1
 }
-for report in snapshot.json verdicts.json reachability-report.md verified-verdicts.json cross-check.json agent-report.md; do
+for report in snapshot.json verdicts.json reachability-report.md agent-report.md; do
   test -s "${PROJECT_DIR}/workspace/report/${report}" || {
     echo "missing or empty report: workspace/report/${report}" >&2
     exit 1
@@ -27,9 +27,6 @@ done
 
 ALERT_COUNT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["alertCount"])' \
   "${PROJECT_DIR}/workspace/report/snapshot.json")"
-python3 -c 'import json,sys; assert json.load(open(sys.argv[1], encoding="utf-8"))["all_matched"] is True' \
-  "${PROJECT_DIR}/workspace/report/cross-check.json"
-
 BUILD_AUDIT_COUNT="$(docker exec octobus sh -c \
   "grep -c 'BuildRepositoryEvidence' /var/lib/octobus/access.log 2>/dev/null || true")"
 CHECK_AUDIT_COUNT="$(docker exec octobus sh -c \
@@ -43,4 +40,4 @@ if [[ "${CHECK_AUDIT_COUNT}" -lt "${ALERT_COUNT}" ]]; then
   exit 1
 fi
 
-echo "verification passed: real snapshot, matching engines, scheduler, reports and OctoBus audit records are present"
+echo "verification passed: real snapshot, OctoBus verdicts, scheduler, reports and audit records are present"
