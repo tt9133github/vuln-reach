@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkReachabilityAt, judge, versionInRange } from "../bin/vuln-reach.js";
+import { checkReachabilityAt, judge, requestSelector, versionInRange } from "../bin/vuln-reach.js";
 import { analyzeSourceUsage, parseMavenDependencies } from "../lib/snapshot.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -20,11 +20,21 @@ test("fixed analysis fixture produces expected verdicts", () => {
   assert.equal(checkReachabilityAt(FIXTURE, { cveId: "CVE-2025-70974" }, "fixture", INPUTS).verdict, "reachable");
   assert.equal(checkReachabilityAt(FIXTURE, { cveId: "CVE-2022-25845" }, "fixture", INPUTS).verdict, "reachable");
   assert.equal(checkReachabilityAt(FIXTURE, { cveId: "CVE-2020-13936" }, "fixture", INPUTS).verdict, "unknown");
+  assert.equal(checkReachabilityAt(FIXTURE, { selector: { case: "cveId", value: "CVE-2025-70974" } }, "fixture", INPUTS).verdict, "reachable");
+  assert.equal(checkReachabilityAt(FIXTURE, { selector: { case: "alertNumber", value: 1 } }, "fixture", INPUTS).verdict, "unknown");
+});
+
+test("selector parser supports protobuf-es oneof and flat compatibility requests", () => {
+  assert.deepEqual(requestSelector({ selector: { case: "cveId", value: " CVE-2025-70974 " } }), { cveId: "CVE-2025-70974", alertNumber: 0 });
+  assert.deepEqual(requestSelector({ selector: { case: "alertNumber", value: 3 } }), { cveId: "", alertNumber: 3 });
+  assert.deepEqual(requestSelector({ cveId: " CVE-2025-70974 " }), { cveId: "CVE-2025-70974", alertNumber: 0 });
+  assert.deepEqual(requestSelector({ alertNumber: "invalid" }), { cveId: "", alertNumber: 0 });
 });
 
 test("request requires exactly one selector", () => {
   assert.equal(checkReachabilityAt(FIXTURE, {}, "", INPUTS).verdict, "unknown");
   assert.match(checkReachabilityAt(FIXTURE, { cveId: "CVE-2025-70974", alertNumber: 1 }, "", INPUTS).reason, /exactly one/);
+  assert.match(checkReachabilityAt(FIXTURE, { selector: { case: undefined }, cveId: "CVE-2025-70974" }, "", INPUTS).reason, /exactly one/);
 });
 
 test("minimal Maven parser resolves direct dependencies", () => {

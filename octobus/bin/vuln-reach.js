@@ -149,19 +149,36 @@ export function judge(alert, rule, dep, evidence, source = {}, snapshotId = "") 
   };
 }
 
-function unknownResponse(request, reason) {
-  return { cveId: request.cveId || "", alertNumber: Number(request.alertNumber || 0), snapshotId: request.snapshotId || "", verdict: "unknown", confidence: "low", reason, evidence: [], fix: [], limitations: [] };
+export function requestSelector(request = {}) {
+  const alertNumberValue = (value) => {
+    const number = Number(value ?? 0);
+    return Number.isInteger(number) && number > 0 ? number : 0;
+  };
+  const selector = request?.selector;
+  if (selector && typeof selector === "object" && Object.prototype.hasOwnProperty.call(selector, "case")) {
+    if (selector.case === "cveId") return { cveId: String(selector.value ?? "").trim(), alertNumber: 0 };
+    if (selector.case === "alertNumber") return { cveId: "", alertNumber: alertNumberValue(selector.value) };
+    return { cveId: "", alertNumber: 0 };
+  }
+  return {
+    cveId: String(request?.cveId ?? "").trim(),
+    alertNumber: alertNumberValue(request?.alertNumber),
+  };
+}
+
+function unknownResponse(request, reason, snapshotId = request?.snapshotId || "") {
+  const selector = requestSelector(request);
+  return { cveId: selector.cveId, alertNumber: selector.alertNumber, snapshotId, verdict: "unknown", confidence: "low", reason, evidence: [], fix: [], limitations: [] };
 }
 
 export function checkReachabilityAt(snapshotRoot, request, snapshotId = "", alertRoot = snapshotRoot) {
-  const cve = String(request.cveId || "").trim();
-  const alertNumber = Number(request.alertNumber || 0);
-  if ((cve && alertNumber) || (!cve && !alertNumber)) return unknownResponse(request, "provide exactly one selector: cveId or alertNumber");
+  const { cveId: cve, alertNumber } = requestSelector(request);
+  if ((cve && alertNumber) || (!cve && !alertNumber)) return unknownResponse(request, "provide exactly one selector: cveId or alertNumber", snapshotId);
   const alerts = readdirSync(path.join(alertRoot, "alerts"))
     .filter((file) => file.endsWith(".json") && file !== "index.json")
     .map((file) => readJsonAt(alertRoot, path.join("alerts", file)));
   const alert = cve ? alerts.find((item) => item.advisory.cve_id === cve) : alerts.find((item) => item.alert.number === alertNumber);
-  if (!alert) return unknownResponse(request, "alert not found in workspace");
+  if (!alert) return unknownResponse(request, "alert not found in workspace", snapshotId);
 
   const rules = new Map();
   for (const file of readdirSync(path.join(RULES_WORKSPACE, "rules")).filter((item) => item.endsWith(".yaml") && item !== "verdict.yaml")) {
@@ -171,7 +188,7 @@ export function checkReachabilityAt(snapshotRoot, request, snapshotId = "", aler
     }
   }
   const rule = rules.get(alert.advisory.cve_id);
-  if (!rule) return unknownResponse(request, "no rule for this CVE");
+  if (!rule) return unknownResponse(request, "no rule for this CVE", snapshotId);
   const dependencyDoc = readJsonAt(snapshotRoot, path.join("repo", "dependencies.json"));
   const usage = readJsonAt(snapshotRoot, path.join("repo", "usage.json")).evidence || {};
   const dep = (dependencyDoc.dependencies || []).find((item) => item.package === alert.vulnerability.package);

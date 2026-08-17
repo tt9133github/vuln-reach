@@ -16,6 +16,12 @@ agents:
     workspace:
       provider: local
       path: ./workspace
+    volumes:
+      # local workspace is an isolated run snapshot; persist reports explicitly.
+      - type: bind
+        source: ./workspace/report
+        target: /workspace/report
+        read_only: false
     capset_ids:
       - vulnreach
     system_prompt: |

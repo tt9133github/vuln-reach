@@ -10,7 +10,8 @@ __pycache__/
 
 # Generated inputs and reports
 workspace/raw/
-workspace/report/
+workspace/report/*
+!workspace/report/.gitkeep
 workspace/runtime/
 
 # Editor and OS files
