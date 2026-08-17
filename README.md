@@ -73,10 +73,10 @@ unset token
 `docker-compose.yml` 已声明所有持久化映射，不需要每次手工映射：
 
 - `/opt/agent-compose/data:/data`：Agent-Compose 数据、项目与运行记录。
-- 同一 `/opt/agent-compose/data:/data` 也挂载给 OctoBus，使两个引擎只读取同一个 runtime snapshot。
+- 同一 `/opt/agent-compose/data:/data` 也挂载给 OctoBus，使能力服务可以在项目目录生成 runtime snapshot。
 - Docker named volume `octobus-data:/var/lib/octobus`：OctoBus 服务、实例、capset 与审计日志。
 - `/var/run/docker.sock`：Agent-Compose 创建 Guest 沙箱所需。
-- `agent-compose.yml` 将 `./workspace/report` 可写挂载到 Guest 的 `/workspace/report`；`local` workspace 是逐次运行的隔离快照，单独挂载后手工任务和定时任务的报告都会回写项目目录。
+- `agent-compose.yml` 将 `./workspace/runtime` 只读挂载到 Guest，使运行中可以读取 OctoBus 新生成的快照；同时将 `./workspace/report` 可写挂载到 Guest，保证手工任务和定时任务的报告回写项目目录。
 
 两个 HTTP 端口只绑定 `127.0.0.1`，不会直接暴露控制面到公网。云安全组也不应放行 7410/9000。
 

@@ -12,7 +12,8 @@ __pycache__/
 workspace/raw/
 workspace/report/*
 !workspace/report/.gitkeep
-workspace/runtime/
+workspace/runtime/*
+!workspace/runtime/.gitkeep
 
 # Editor and OS files
 *.swp

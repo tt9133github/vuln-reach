@@ -17,7 +17,11 @@ agents:
       provider: local
       path: ./workspace
     volumes:
-      # local workspace is an isolated run snapshot; persist reports explicitly.
+      # local workspace is an isolated run snapshot; share runtime read-only and persist reports explicitly.
+      - type: bind
+        source: ./workspace/runtime
+        target: /workspace/runtime
+        read_only: true
       - type: bind
         source: ./workspace/report
         target: /workspace/report
