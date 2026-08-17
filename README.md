@@ -73,6 +73,7 @@ unset token
 - `/opt/agent-compose/data:/data`：Agent-Compose 数据、项目与运行记录。
 - Docker named volume `octobus-data:/var/lib/octobus`：OctoBus 服务、实例、capset 与审计日志。
 - `/var/run/docker.sock`：Agent-Compose 创建 Guest 沙箱所需。
+- `agent-compose.yml` 将 `./workspace/report` 可写挂载到 Guest 的 `/workspace/report`：`local` workspace 本身是逐次运行的隔离快照，报告目录单独持久化后，手工任务和定时任务的结果都会回写项目目录。
 
 两个 HTTP 端口只绑定 `127.0.0.1`，不会直接暴露控制面到公网。云安全组也不应放行 7410/9000。
 
