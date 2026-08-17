@@ -52,7 +52,6 @@
     },
     "org.apache.velocity:velocity": {
       "sink_scan_complete": true,
-      "template_control": "internal",
       "usage": [
         {
           "api": "VelocityEngine.getTemplate(String)",
@@ -67,7 +66,7 @@
           "context": "velocity.properties 同样通过 getResourceAsStream 从 classpath 加载"
         }
       ],
-      "note": "模板均为打包内静态资源，无上传/外部模板修改入口；VelocityRendererMain 仅用于本地 CLI 渲染，不接受远程模板"
+      "note": "源码硬编码了 classpath 模板路径，但目标 commit 未提交对应 .vm/.properties 文件，无法证明模板来源是 internal 或 attacker_controlled"
     }
   }
 }

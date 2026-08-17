@@ -2,7 +2,21 @@ syntax = "proto3";
 package vulnreach.v1;
 
 service VulnReachService {
+  rpc BuildRepositoryEvidence(BuildRepositoryEvidenceRequest) returns (BuildRepositoryEvidenceResponse);
   rpc CheckReachability(CheckReachabilityRequest) returns (CheckReachabilityResponse);
+}
+
+message BuildRepositoryEvidenceRequest {}
+
+message BuildRepositoryEvidenceResponse {
+  string snapshot_id = 1 [json_name = "snapshotId"];
+  string repository = 2;
+  string resolved_commit = 3 [json_name = "resolvedCommit"];
+  string collected_at = 4 [json_name = "collectedAt"];
+  int32 alert_count = 5 [json_name = "alertCount"];
+  int32 dependency_count = 6 [json_name = "dependencyCount"];
+  int32 source_file_count = 7 [json_name = "sourceFileCount"];
+  string input_captured_at = 8 [json_name = "inputCapturedAt"];
 }
 
 message CheckReachabilityRequest {
@@ -10,6 +24,7 @@ message CheckReachabilityRequest {
     string cve_id = 1 [json_name = "cveId"];
     int32 alert_number = 2 [json_name = "alertNumber"];
   }
+  string snapshot_id = 3 [json_name = "snapshotId"];
 }
 
 message CheckReachabilityResponse {
@@ -30,6 +45,7 @@ message CheckReachabilityResponse {
   string scope = 15;
   repeated string limitations = 16;
   ReachabilityChecks checks = 17;
+  string snapshot_id = 18 [json_name = "snapshotId"];
 }
 
 message ReachabilityChecks {

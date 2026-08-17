@@ -22,16 +22,23 @@ octo instance delete reach-01 2>/dev/null || true
 octo service delete vuln-reach 2>/dev/null || true
 
 docker exec -u 0 octobus sh -c \
-  'rm -rf /var/lib/octobus/imports/vuln-reach && mkdir -p /var/lib/octobus/imports/vuln-reach/workspace'
+  'rm -rf /var/lib/octobus/imports/vuln-reach && mkdir -p /var/lib/octobus/imports/vuln-reach/workspace/rules'
 docker cp octobus/. octobus:/var/lib/octobus/imports/vuln-reach/
-docker cp workspace/. octobus:/var/lib/octobus/imports/vuln-reach/workspace/
+docker cp workspace/rules/. octobus:/var/lib/octobus/imports/vuln-reach/workspace/rules/
+docker cp sources.yaml octobus:/var/lib/octobus/imports/vuln-reach/sources.yaml
+docker cp inputs octobus:/var/lib/octobus/imports/vuln-reach/inputs
 docker exec -u 0 octobus chmod 755 /var/lib/octobus/imports/vuln-reach/bin/vuln-reach.js
 
 octo service import vuln-reach /var/lib/octobus/imports/vuln-reach --build auto --reinstall
-octo instance create reach-01 --service vuln-reach --config-json '{}'
+octo instance create reach-01 \
+  --service vuln-reach \
+  --config-json '{"workspacePath":"/data/projects/vuln-reach/workspace"}'
 octo capset create vulnreach --name VulnerabilityReach \
   --description 'Vulnerability reachability capability set'
 octo capset add-instance vulnreach reach-01 --no-all-methods
+octo capset select-method \
+  vulnreach reach-01 vulnreach.v1.VulnReachService/BuildRepositoryEvidence \
+  --mcp-tool vuln-reach__reach-01__build_repository_evidence
 octo capset select-method \
   vulnreach reach-01 vulnreach.v1.VulnReachService/CheckReachability \
   --mcp-tool vuln-reach__reach-01__check_reachability

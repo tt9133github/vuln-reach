@@ -4,15 +4,18 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { buildSnapshot, resolveSnapshot } from "../lib/snapshot.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGED_WORKSPACE = path.join(ROOT, "workspace");
-const WS = process.env.VULN_REACH_WORKSPACE ||
-  (existsSync(PACKAGED_WORKSPACE) ? PACKAGED_WORKSPACE : path.resolve(ROOT, "../workspace"));
+const DEFAULT_WORKSPACE = process.env.VULN_REACH_WORKSPACE || "/data/projects/vuln-reach/workspace";
+const RULES_WORKSPACE = existsSync(path.join(PACKAGED_WORKSPACE, "rules"))
+  ? PACKAGED_WORKSPACE
+  : path.resolve(ROOT, "../workspace");
 const STATUS = new Map([[true, "pass"], [false, "fail"], [null, "unknown"]]);
 
-const readJson = (rel) => JSON.parse(readFileSync(path.join(WS, rel), "utf8"));
-const readYaml = (rel) => parseYaml(readFileSync(path.join(WS, rel), "utf8"));
+const readJsonAt = (root, rel) => JSON.parse(readFileSync(path.join(root, rel), "utf8"));
+const readRuleYaml = (rel) => parseYaml(readFileSync(path.join(RULES_WORKSPACE, rel), "utf8"));
 
 export function versionTuple(value) {
   const text = String(value ?? "").trim();
@@ -82,7 +85,7 @@ function checkSink(evidence, patterns) {
   return [null, "no matching sink found, but sink scan completeness is not established", []];
 }
 
-export function judge(alert, rule, dep, evidence, source = {}) {
+export function judge(alert, rule, dep, evidence, source = {}, snapshotId = "") {
   const installed = dep?.version || "";
   let versionMatch;
   let versionDetail;
@@ -134,7 +137,7 @@ export function judge(alert, rule, dep, evidence, source = {}) {
     alertNumber: alert.alert.number, package: alert.vulnerability.package,
     installedVersion: installed, affectedVersions: rule.affected_versions || "",
     fixedVersion: rule.fixed_version || "", ruleId: rule.rule_id,
-    sourceCommit: source.commit || "", scope: rule.scope || "component API boundary",
+    sourceCommit: source.commit || "", snapshotId, scope: rule.scope || "component API boundary",
     limitations: rule.limitations || [],
     checks: {
       versionMatch: STATUS.get(checks.versionMatch),
@@ -147,38 +150,59 @@ export function judge(alert, rule, dep, evidence, source = {}) {
 }
 
 function unknownResponse(request, reason) {
-  return { cveId: request.cveId || "", alertNumber: Number(request.alertNumber || 0), verdict: "unknown", confidence: "low", reason, evidence: [], fix: [], limitations: [] };
+  return { cveId: request.cveId || "", alertNumber: Number(request.alertNumber || 0), snapshotId: request.snapshotId || "", verdict: "unknown", confidence: "low", reason, evidence: [], fix: [], limitations: [] };
 }
 
-export function checkReachabilityHandler(ctx) {
-  const request = ctx.request || {};
+export function checkReachabilityAt(snapshotRoot, request, snapshotId = "", alertRoot = snapshotRoot) {
   const cve = String(request.cveId || "").trim();
   const alertNumber = Number(request.alertNumber || 0);
   if ((cve && alertNumber) || (!cve && !alertNumber)) return unknownResponse(request, "provide exactly one selector: cveId or alertNumber");
-  const alerts = readdirSync(path.join(WS, "alerts"))
+  const alerts = readdirSync(path.join(alertRoot, "alerts"))
     .filter((file) => file.endsWith(".json") && file !== "index.json")
-    .map((file) => readJson(path.join("alerts", file)));
+    .map((file) => readJsonAt(alertRoot, path.join("alerts", file)));
   const alert = cve ? alerts.find((item) => item.advisory.cve_id === cve) : alerts.find((item) => item.alert.number === alertNumber);
   if (!alert) return unknownResponse(request, "alert not found in workspace");
 
   const rules = new Map();
-  for (const file of readdirSync(path.join(WS, "rules")).filter((item) => item.endsWith(".yaml") && item !== "verdict.yaml")) {
-    for (const rule of readYaml(path.join("rules", file)).rules || []) {
+  for (const file of readdirSync(path.join(RULES_WORKSPACE, "rules")).filter((item) => item.endsWith(".yaml") && item !== "verdict.yaml")) {
+    for (const rule of readRuleYaml(path.join("rules", file)).rules || []) {
       if (!rule.cve || rules.has(rule.cve)) throw new Error(`missing or duplicate CVE rule: ${rule.cve}`);
       rules.set(rule.cve, rule);
     }
   }
   const rule = rules.get(alert.advisory.cve_id);
   if (!rule) return unknownResponse(request, "no rule for this CVE");
-  const dependencyDoc = readJson(path.join("repo", "dependencies.json"));
-  const usage = readJson(path.join("repo", "usage.json")).evidence || {};
+  const dependencyDoc = readJsonAt(snapshotRoot, path.join("repo", "dependencies.json"));
+  const usage = readJsonAt(snapshotRoot, path.join("repo", "usage.json")).evidence || {};
   const dep = (dependencyDoc.dependencies || []).find((item) => item.package === alert.vulnerability.package);
-  return judge(alert, rule, dep, usage[alert.vulnerability.package], dependencyDoc.source || {});
+  return judge(alert, rule, dep, usage[alert.vulnerability.package], dependencyDoc.source || {}, snapshotId);
+}
+
+export function checkReachabilityHandler(ctx) {
+  const request = ctx.request || {};
+  try {
+    const workspacePath = ctx.config?.workspacePath || DEFAULT_WORKSPACE;
+    const { snapshotId, snapshotRoot } = resolveSnapshot(workspacePath, request.snapshotId || "");
+    return checkReachabilityAt(snapshotRoot, request, snapshotId);
+  } catch (error) {
+    return unknownResponse(request, `snapshot unavailable: ${error.message}`);
+  }
+}
+
+export async function buildRepositoryEvidenceHandler(ctx) {
+  return buildSnapshot({
+    workspacePath: ctx.config?.workspacePath || DEFAULT_WORKSPACE,
+    sourcesPath: path.join(ROOT, "sources.yaml"),
+    alertsPath: path.join(ROOT, "inputs", "alerts"),
+  });
 }
 
 async function main() {
   const { defineService, runServiceMain } = await import("@chaitin-ai/octobus-sdk");
-  runServiceMain(defineService({ handlers: { "vulnreach.v1.VulnReachService/CheckReachability": checkReachabilityHandler } }));
+  runServiceMain(defineService({ handlers: {
+    "vulnreach.v1.VulnReachService/BuildRepositoryEvidence": buildRepositoryEvidenceHandler,
+    "vulnreach.v1.VulnReachService/CheckReachability": checkReachabilityHandler,
+  } }));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

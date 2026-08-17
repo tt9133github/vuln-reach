@@ -1,4 +1,12 @@
 {
   "type": "object",
-  "properties": {}
+  "additionalProperties": false,
+  "properties": {
+    "workspacePath": {
+      "type": "string",
+      "minLength": 1,
+      "default": "/data/projects/vuln-reach/workspace",
+      "description": "Shared Agent-Compose workspace mounted into the OctoBus container"
+    }
+  }
 }

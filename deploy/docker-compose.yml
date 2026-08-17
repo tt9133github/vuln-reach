@@ -7,6 +7,7 @@ services:
     restart: always
     volumes:
       - octobus-data:/var/lib/octobus
+      - ${AGENT_COMPOSE_DATA_DIR:-/opt/agent-compose/data}:/data
     ports:
       - "127.0.0.1:9000:9000"
     healthcheck:

@@ -1,8 +1,6 @@
-# 告警源配置：固定仓库列表
-# fetch_alerts.py 按此列表拉取 GitHub Dependabot 告警，缓存到 workspace/raw/dependabot/
-# 新增告警源只需在 repos 下加一项，无需改代码
+# Production source target. Alerts are fixed under inputs/; source analysis is pinned to this
+# exact public commit so every verdict can be reproduced and audited without credentials.
 github:
-  token_env: GITHUB_TOKEN        # token 从环境变量或项目根目录 .env 读取
   api_version: "2022-11-28"
 
 repos:

@@ -2,7 +2,7 @@
   "schema": "chaitin.octobus.service.v1",
   "name": "vuln-reach",
   "displayName": "Vulnerability Reachability",
-  "description": "Deterministic vulnerability reachability analysis driven by curated rules and repository evidence.",
+  "description": "Combines fixed real alert input with pinned public source, builds auditable evidence snapshots, and performs deterministic reachability checks.",
   "proto": {
     "roots": ["proto"],
     "files": ["proto/vuln_reach.proto"]

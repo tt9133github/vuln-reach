@@ -113,7 +113,7 @@ def check_sink(evidence: dict | None, patterns: list[str]) -> tuple[bool | None,
     return None, "no matching sink found, but sink scan completeness is not established", []
 
 
-def judge(alert: dict, rule: dict, dep: dict | None, evidence: dict | None, source: dict | None = None) -> dict:
+def judge(alert: dict, rule: dict, dep: dict | None, evidence: dict | None, source: dict | None = None, snapshot_id: str = "") -> dict:
     rule_id = rule["rule_id"]
     installed = dep.get("version", "") if dep else ""
     authoritative = bool((source or {}).get("authoritative"))
@@ -166,7 +166,8 @@ def judge(alert: dict, rule: dict, dep: dict | None, evidence: dict | None, sour
         "severity": alert["advisory"]["severity"], "package": alert["vulnerability"]["package"],
         "installed_version": installed, "affected_versions": rule.get("affected_versions", ""),
         "fixed_version": rule.get("fixed_version", ""), "rule_id": rule_id,
-        "source_commit": source.get("commit", ""), "scope": rule.get("scope", "component API boundary"),
+        "source_commit": source.get("commit", ""), "snapshot_id": snapshot_id,
+        "scope": rule.get("scope", "component API boundary"),
         "limitations": rule.get("limitations", []), "checks": checks, "verdict": verdict,
         "confidence": confidence, "verdict_reason": reason, "evidence": items,
         "fix": rule.get("fix", []), "exploit_notes": rule.get("exploit_notes", ""),
@@ -177,8 +178,8 @@ def mark(value: bool | None) -> str:
     return {True: "PASS", False: "FAIL", None: "UNKNOWN"}[value]
 
 
-def build_markdown(verdicts: list, policy: dict, generated_at: str) -> str:
-    lines = ["# Vulnerability Reachability Report", "", f"- generated_at: {generated_at}", f"- alerts analyzed: {len(verdicts)}", f"- policy: {policy['verdicts']['unknown']['definition']}", ""]
+def build_markdown(verdicts: list, policy: dict, generated_at: str, snapshot_id: str) -> str:
+    lines = ["# Vulnerability Reachability Report", "", f"- generated_at: {generated_at}", f"- snapshot_id: `{snapshot_id}`", f"- alerts analyzed: {len(verdicts)}", f"- policy: {policy['verdicts']['unknown']['definition']}", ""]
     for value in sorted(verdicts, key=lambda item: item["alert_number"]):
         lines += [f"## #{value['alert_number']} {value['cve_id']} — {value['verdict'].upper()} ({value['confidence']})", "", f"- package: `{value['package']}:{value['installed_version'] or 'not found'}`", f"- affected/fixed: `{value.get('affected_versions', '')}` / `{value.get('fixed_version', '') or 'n/a'}`", f"- rule: `{value.get('rule_id') or 'none'}`", f"- source commit: `{value.get('source_commit') or 'unknown'}`", f"- scope: {value.get('scope', '')}", f"- verdict reason: {value['verdict_reason']}", "", "### Checks", ""]
         if value.get("checks"):
@@ -210,38 +211,53 @@ def load_rules(rules_dir: Path) -> dict:
     return rules
 
 
-def unknown_verdict(alert: dict, reason: str) -> dict:
-    return {"cve_id": alert["advisory"]["cve_id"], "ghsa_id": alert["advisory"]["ghsa_id"], "alert_number": alert["alert"]["number"], "state": alert["alert"]["state"], "severity": alert["advisory"]["severity"], "package": alert["vulnerability"]["package"], "installed_version": "", "affected_versions": "", "fixed_version": "", "rule_id": None, "source_commit": "", "scope": "component API boundary", "limitations": [], "checks": {}, "verdict": "unknown", "confidence": "low", "verdict_reason": reason, "evidence": [], "fix": []}
+def unknown_verdict(alert: dict, reason: str, snapshot_id: str = "") -> dict:
+    return {"cve_id": alert["advisory"]["cve_id"], "ghsa_id": alert["advisory"]["ghsa_id"], "alert_number": alert["alert"]["number"], "state": alert["alert"]["state"], "severity": alert["advisory"]["severity"], "package": alert["vulnerability"]["package"], "installed_version": "", "affected_versions": "", "fixed_version": "", "rule_id": None, "source_commit": "", "snapshot_id": snapshot_id, "scope": "component API boundary", "limitations": [], "checks": {}, "verdict": "unknown", "confidence": "low", "verdict_reason": reason, "evidence": [], "fix": []}
+
+
+def resolve_snapshot(root: Path, runtime: str, requested_id: str) -> tuple[str, Path]:
+    runtime_root = root / runtime
+    snapshot_id = requested_id.strip()
+    if not snapshot_id:
+        pointer = load_json(runtime_root / "current.json")
+        snapshot_id = str(pointer.get("snapshot_id", ""))
+    if not re.fullmatch(r"[0-9A-Za-z._-]+", snapshot_id):
+        raise ValueError("invalid or missing snapshot id")
+    snapshot_root = runtime_root / "snapshots" / snapshot_id
+    if not (snapshot_root / "provenance.json").is_file():
+        raise FileNotFoundError(f"snapshot not found: {snapshot_id}")
+    return snapshot_id, snapshot_root
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="vulnerability reachability analysis")
-    parser.add_argument("--alerts", default="alerts")
-    parser.add_argument("--repo", default="repo")
+    parser.add_argument("--runtime", default="runtime")
+    parser.add_argument("--snapshot-id", default="")
     parser.add_argument("--rules", default="rules")
     parser.add_argument("--output", default="report")
     args = parser.parse_args()
     root = project_root()
-    repo_doc = load_json(root / args.repo / "dependencies.json")
-    usage_doc = load_json(root / args.repo / "usage.json")
+    snapshot_id, snapshot_root = resolve_snapshot(root, args.runtime, args.snapshot_id)
+    repo_doc = load_json(snapshot_root / "repo" / "dependencies.json")
+    usage_doc = load_json(snapshot_root / "repo" / "usage.json")
     deps = {item["package"]: item for item in repo_doc.get("dependencies", [])}
     usage, source = usage_doc.get("evidence", {}), repo_doc.get("source", {})
     rules, policy = load_rules(root / args.rules), load_yaml(root / args.rules / "verdict.yaml")
     verdicts = []
-    for alert_file in sorted((root / args.alerts).glob("*.json")):
+    for alert_file in sorted((snapshot_root / "alerts").glob("*.json")):
         if alert_file.name == "index.json":
             continue
         alert = load_json(alert_file)
         cve, package = alert["advisory"]["cve_id"], alert["vulnerability"]["package"]
         rule = rules.get(cve)
-        value = judge(alert, rule, deps.get(package), usage.get(package), source) if rule else unknown_verdict(alert, "no rule for this CVE")
+        value = judge(alert, rule, deps.get(package), usage.get(package), source, snapshot_id) if rule else unknown_verdict(alert, "no rule for this CVE", snapshot_id)
         verdicts.append(value)
         print(f"[OK] {cve} -> {value['verdict']} ({value['confidence']})")
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     output = root / args.output
     output.mkdir(parents=True, exist_ok=True)
-    (output / "verdicts.json").write_text(json.dumps({"schema_version": "verdict/1.1", "generated_at": generated_at, "verdicts": verdicts}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (output / "reachability-report.md").write_text(build_markdown(verdicts, policy, generated_at) + "\n", encoding="utf-8")
+    (output / "verdicts.json").write_text(json.dumps({"schema_version": "verdict/2.0", "generated_at": generated_at, "snapshot_id": snapshot_id, "verdicts": verdicts}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (output / "reachability-report.md").write_text(build_markdown(verdicts, policy, generated_at, snapshot_id) + "\n", encoding="utf-8")
     print(f"\n{len(verdicts)} alerts analyzed -> {output.relative_to(root)}")
     return 0
 

@@ -2,17 +2,18 @@
 
 ## 输入
 
-- `/workspace/alerts/*.json` — 归一化告警契约（`normalize.py` 产出）
-- `/workspace/repo/dependencies.json` — 仓库依赖清单
-- `/workspace/repo/usage.json` — 代码用法证据（文件、行号、sink、入口）
+- `/workspace/runtime/current.json` — 本次不可变快照指针
+- `/workspace/runtime/snapshots/<snapshot_id>/alerts/*.json` — 仓库内固定的真实告警输入副本
+- `/workspace/runtime/snapshots/<snapshot_id>/repo/dependencies.json` — 程序从真实 `pom.xml` 解析的依赖清单
+- `/workspace/runtime/snapshots/<snapshot_id>/repo/usage.json` — 程序从固定 commit 扫描出的代码证据
 - `/workspace/rules/*.yaml` — 研判规则（版本区间、sink、前置条件）与判定策略
 
 ## 步骤
 
-1. 读取告警契约，确定待研判的 CVE 与受影响包
-2. 从依赖清单与代码证据中提取安装版本、sink 调用点、入口来源
-3. 运行 `python3 /workspace/scripts/reachability.py` 得到结构化判定
-4. 对每个判定核验证据链，输出带证据的最终报告
+1. 通过 OctoBus `BuildRepositoryEvidence` 校验固定告警输入、下载固定 commit 并生成快照
+2. 读取同一个 `snapshot_id`，确定待研判 CVE、安装版本、sink 调用点与入口来源
+3. 运行 `python3 /workspace/scripts/reachability.py --snapshot-id <id>` 得到结构化判定
+4. 通过 OctoBus `CheckReachability` 逐条交叉验证，再输出带证据的最终报告
 
 ## 判定口径
 

@@ -11,6 +11,7 @@ __pycache__/
 # Generated inputs and reports
 workspace/raw/
 workspace/report/
+workspace/runtime/
 
 # Editor and OS files
 *.swp

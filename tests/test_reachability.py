@@ -7,13 +7,14 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = ROOT / "tests/fixtures/workspace"
 SPEC = importlib.util.spec_from_file_location("reachability", ROOT / "workspace/scripts/reachability.py")
 reachability = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(reachability)
 
 
 def alert(cve):
-    return json.loads((ROOT / f"workspace/alerts/{cve}.json").read_text(encoding="utf-8"))
+    return json.loads((ROOT / f"inputs/alerts/{cve}.json").read_text(encoding="utf-8"))
 
 
 def rules():
@@ -27,10 +28,10 @@ def rules():
 class ReachabilityTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        dep_doc = json.loads((ROOT / "workspace/repo/dependencies.json").read_text(encoding="utf-8"))
+        dep_doc = json.loads((FIXTURE / "repo/dependencies.json").read_text(encoding="utf-8"))
         cls.source = dep_doc["source"]
         cls.deps = {item["package"]: item for item in dep_doc["dependencies"]}
-        cls.usage = json.loads((ROOT / "workspace/repo/usage.json").read_text(encoding="utf-8"))["evidence"]
+        cls.usage = json.loads((FIXTURE / "repo/usage.json").read_text(encoding="utf-8"))["evidence"]
         cls.rules = rules()
 
     def evaluate(self, cve):
@@ -38,10 +39,10 @@ class ReachabilityTest(unittest.TestCase):
         package = current_alert["vulnerability"]["package"]
         return reachability.judge(current_alert, self.rules[cve], self.deps[package], self.usage[package], self.source)
 
-    def test_curated_fixtures(self):
+    def test_fixed_analysis_fixtures(self):
         self.assertEqual("reachable", self.evaluate("CVE-2025-70974")["verdict"])
         self.assertEqual("reachable", self.evaluate("CVE-2022-25845")["verdict"])
-        self.assertEqual("not_reachable", self.evaluate("CVE-2020-13936")["verdict"])
+        self.assertEqual("unknown", self.evaluate("CVE-2020-13936")["verdict"])
 
     def test_invalid_version_is_unknown(self):
         current_alert = alert("CVE-2025-70974")

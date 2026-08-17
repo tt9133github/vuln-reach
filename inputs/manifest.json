@@ -1,0 +1,13 @@
+{
+  "schema_version": "vuln-reach-input/1.0",
+  "description": "Fixed, real Dependabot alert snapshot used as reproducible assessment input; alert state is not refreshed at runtime. Checksums use UTF-8 text with LF line endings.",
+  "source": "GitHub Dependabot Alerts API",
+  "repository": "tt9133github/mvntree-util",
+  "captured_at": "2026-08-13T03:12:26+00:00",
+  "files": {
+    "CVE-2020-13936.json": "263dbaf030ba93a76795cc4b47cb19078a440daa99fc6dba7f677dd56cbceb31",
+    "CVE-2022-25845.json": "7fd53f05d99974683b4b144cc0f3a511b62d1d15a844e23d0d3bc578add2ae6a",
+    "CVE-2025-70974.json": "f313d1f0b1fb157ab2affa6a32064c0cdeb473fc6e50be97e4029d1d036655ec",
+    "index.json": "d9f425d763012ec9ef4912fc3f097ed8a57fbf5df320f6ab80c7566205f17813"
+  }
+}
