@@ -1,9 +1,9 @@
-schema_version: rules/1.0
+schema_version: rules/2.0
 package: com.alibaba:fastjson
 description: fastjson autoType 反序列化类漏洞规则
 
 rules:
-  - rule_id: fastjson-cve-2025-70974-v1
+  - rule_id: fastjson-cve-2025-70974-v2
     cve: CVE-2025-70974
     ghsa: GHSA-jm7w-5684-pvh8
     vulnerability_class: unsafe-deserialization
@@ -17,10 +17,27 @@ rules:
       - api: "JSON.parseArray(String)"
       - api: "JSONObject.parseArray(String)"
     preconditions:
-      - id: external_input_controls_sink
-        description: "sink 入参由外部输入控制"
+      - id: component_input_controls_sink
+        description: "组件 public API 的调用参数可到达 sink（不等同于公网或请求输入）"
         evidence_path: "entry_points[*].sink_argument_controlled"
         expect: true
+    level_evidence:
+      component_usage:
+        evidence_paths: ["imports[*]", "sinks[*]"]
+      dangerous_sink:
+        evidence_path: "sinks[*]"
+      external_input_to_sink:
+        evidence_path: "entry_points[*].sink_argument_controlled"
+        expect: true
+      complete_attack_path:
+        all:
+          - evidence_path: "entry_points[*].external_exposure"
+            expect: "external"
+            unknown_values: ["unknown"]
+          - evidence_path: "runtime.fastjson_autotype_or_equivalent_enabled"
+            expect: true
+          - evidence_path: "runtime.exploitable_gadget_available"
+            expect: true
     exploit_notes: "版本与调用链命中；真实利用仍取决于运行时配置、类路径 gadget 与上层调用者是否传入不可信数据。SafeMode 自 1.2.68 才提供，不能作为 1.2.31 的原地开关。"
     fix:
       - "优先迁移到 fastjson2；若必须保留 1.x，升级到当前 1.x 修复版本 >= 1.2.84 并完成兼容性测试"
@@ -28,7 +45,7 @@ rules:
     limitations:
       - "未运行恶意载荷，未验证 classpath gadget、JNDI 出网条件或上层网络入口"
 
-  - rule_id: fastjson-cve-2022-25845-v1
+  - rule_id: fastjson-cve-2022-25845-v2
     cve: CVE-2022-25845
     ghsa: GHSA-pv7h-hx5h-mgfj
     vulnerability_class: unsafe-deserialization
@@ -42,10 +59,27 @@ rules:
       - api: "JSON.parseArray(String)"
       - api: "JSONObject.parseArray(String)"
     preconditions:
-      - id: external_input_controls_sink
-        description: "sink 入参由外部输入控制"
+      - id: component_input_controls_sink
+        description: "组件 public API 的调用参数可到达 sink（不等同于公网或请求输入）"
         evidence_path: "entry_points[*].sink_argument_controlled"
         expect: true
+    level_evidence:
+      component_usage:
+        evidence_paths: ["imports[*]", "sinks[*]"]
+      dangerous_sink:
+        evidence_path: "sinks[*]"
+      external_input_to_sink:
+        evidence_path: "entry_points[*].sink_argument_controlled"
+        expect: true
+      complete_attack_path:
+        all:
+          - evidence_path: "entry_points[*].external_exposure"
+            expect: "external"
+            unknown_values: ["unknown"]
+          - evidence_path: "runtime.fastjson_autotype_or_equivalent_enabled"
+            expect: true
+          - evidence_path: "runtime.exploitable_gadget_available"
+            expect: true
     exploit_notes: "该 CVE 涉及对 AutoType 限制的绕过；1.2.25 起 AutoType 默认受到限制，不能表述为 1.2.31 默认完全开放。"
     fix:
       - "CVE 首个修复版本为 1.2.83；部署时优先迁移 fastjson2，或升级到当前 1.x 修复版本 >= 1.2.84"

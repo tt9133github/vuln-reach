@@ -27,9 +27,15 @@ test("optional public codeload end-to-end smoke", { skip: !enabled }, async () =
     assert.equal(usage.evidence["com.alibaba:fastjson"].sinks[0].line, 114);
     assert.equal(usage.evidence["com.alibaba:fastjson"].entry_points[0].line, 16);
     assert.equal(usage.evidence["org.apache.velocity:velocity"].template_control, undefined);
-    assert.equal(checkReachabilityAt(snapshot, { cveId: "CVE-2025-70974" }, result.snapshotId).verdict, "reachable");
-    assert.equal(checkReachabilityAt(snapshot, { cveId: "CVE-2022-25845" }, result.snapshotId).verdict, "reachable");
-    assert.equal(checkReachabilityAt(snapshot, { cveId: "CVE-2020-13936" }, result.snapshotId).verdict, "unknown");
+    const firstFastjson = checkReachabilityAt(snapshot, { cveId: "CVE-2025-70974" }, result.snapshotId);
+    const secondFastjson = checkReachabilityAt(snapshot, { cveId: "CVE-2022-25845" }, result.snapshotId);
+    const velocity = checkReachabilityAt(snapshot, { cveId: "CVE-2020-13936" }, result.snapshotId);
+    assert.equal(firstFastjson.verdict, "reachable");
+    assert.equal(secondFastjson.verdict, "reachable");
+    assert.equal(velocity.verdict, "unknown");
+    assert.equal(firstFastjson.reachabilityLevel, "L3");
+    assert.equal(secondFastjson.reachabilityLevel, "L3");
+    assert.equal(velocity.reachabilityLevel, "L2");
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

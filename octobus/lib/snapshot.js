@@ -209,6 +209,7 @@ function analyzeFastjson(files) {
     }
   }
   return {
+    component_usage_scan_complete: true,
     sink_scan_complete: true,
     sinks,
     imports: imports.map(({ file, line }) => ({ file, lines: String(line) })),
@@ -234,7 +235,7 @@ function analyzeVelocity(files) {
   const resourcePaths = new Set(Object.keys(files)
     .filter((file) => file.startsWith("src/main/resources/"))
     .map((file) => `/${file.slice("src/main/resources/".length)}`));
-  const evidence = { sink_scan_complete: true, usage };
+  const evidence = { component_usage_scan_complete: true, sink_scan_complete: true, usage };
   if (usage.some((item) => item.api === "VelocityEngine.getTemplate(String)") &&
       templatePaths.length > 0 && templatePaths.every((item) => resourcePaths.has(item.path))) {
     evidence.template_control = "internal";

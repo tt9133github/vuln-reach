@@ -26,6 +26,8 @@ test("optional pinned-repository source smoke", { skip: !checkout }, () => {
   assert.equal(evidence["com.alibaba:fastjson"].sinks[0].line, 114);
   assert.equal(evidence["com.alibaba:fastjson"].entry_points[0].line, 16);
   assert.equal(evidence["com.alibaba:fastjson"].entry_points[0].sink_argument_controlled, true);
+  assert.equal(evidence["com.alibaba:fastjson"].component_usage_scan_complete, true);
   assert.equal(evidence["org.apache.velocity:velocity"].usage[0].line, 133);
   assert.equal(evidence["org.apache.velocity:velocity"].template_control, undefined);
+  assert.equal(evidence["org.apache.velocity:velocity"].component_usage_scan_complete, true);
 });

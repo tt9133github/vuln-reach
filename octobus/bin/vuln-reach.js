@@ -69,6 +69,90 @@ function resolveEvidencePath(evidence, dottedPath) {
   return current;
 }
 
+function signalValues(evidence, signal = {}) {
+  const paths = signal.evidence_paths || (signal.evidence_path ? [signal.evidence_path] : []);
+  return paths.flatMap((item) => resolveEvidencePath(evidence || {}, item));
+}
+
+function signalEstablished(evidence, signal = {}) {
+  const values = signalValues(evidence, signal);
+  if (values.length === 0) return null;
+  if (signal.field) {
+    const observed = values
+      .filter((item) => item && typeof item === "object" && signal.field in item)
+      .map((item) => item[signal.field]);
+    if (observed.length === 0) return null;
+    return signal.expect === undefined ? true : observed.some((item) => item === signal.expect);
+  }
+  if (signal.expect !== undefined) {
+    if (values.some((item) => item === signal.expect)) return true;
+    const unknownValues = new Set(signal.unknown_values || ["unknown"]);
+    return values.every((item) => unknownValues.has(item)) ? null : false;
+  }
+  return true;
+}
+
+function attackPathEstablished(evidence, signal = {}) {
+  const states = (signal.all || []).map((item) => signalEstablished(evidence, item));
+  if (states.length === 0 || states.some((item) => item === null)) return null;
+  return states.every(Boolean);
+}
+
+const FALLBACK_LEVELS = {
+  L0: { definition: "漏洞版本存在，但完整扫描未发现组件使用", governance_action: "记录后降级处置，并评估移除未使用依赖" },
+  L1: { definition: "组件使用已确认，尚未证明到达危险函数", governance_action: "常规治理；保留扫描完整性证据" },
+  L2: { definition: "危险函数调用已确认，尚未证明外部输入到达危险参数", governance_action: "进入专项复核，检查真实入口与数据流" },
+  L3: { definition: "分析边界外的调用者可控输入到达危险函数，但完整利用前提尚未全部成立", governance_action: "高优先级整改并核查配置、gadget、网络与权限条件" },
+  L4: { definition: "版本、外部入口、危险函数与全部利用前提形成完整攻击路径", governance_action: "按紧急事件处置：立即缓解、升级并验证阻断" },
+};
+
+export function classifyReachabilityLevel(rule, evidence, versionMatch, policy = {}) {
+  if (versionMatch === false) {
+    return { level: "NA", reason: "installed version is outside the vulnerable range", governanceAction: "按版本证据关闭该告警或复核告警数据" };
+  }
+  if (versionMatch === null) {
+    return { level: "unknown", reason: "vulnerable component version is not established", governanceAction: "补齐权威依赖与版本证据" };
+  }
+
+  const signals = rule.level_evidence || {};
+  const componentUsage = signalEstablished(evidence, signals.component_usage);
+  const dangerousSink = signalEstablished(evidence, signals.dangerous_sink);
+  const externalInput = signalEstablished(evidence, signals.external_input_to_sink);
+  const completeAttackPath = attackPathEstablished(evidence, signals.complete_attack_path);
+  let level = "unknown";
+  let reason = "source evidence is insufficient to establish even Level 0";
+
+  if (completeAttackPath === true && externalInput === true && dangerousSink === true) {
+    level = "L4";
+    reason = "external entry, dangerous sink and every rule-defined exploit prerequisite are established";
+  } else if (externalInput === true && dangerousSink === true) {
+    level = "L3";
+    reason = "caller-controlled input from outside the analysis boundary reaches the dangerous sink, but the complete exploit path is not established";
+  } else if (dangerousSink === true) {
+    level = "L2";
+    reason = "a dangerous sink call is established, but external-input control of its argument is not established";
+  } else if (componentUsage === true) {
+    level = "L1";
+    reason = "component use is established, but no dangerous sink call is established";
+  } else if (evidence?.component_usage_scan_complete === true || evidence?.sink_scan_complete === true) {
+    level = "L0";
+    reason = "the vulnerable component is installed and a complete source scan found no component use";
+  }
+
+  const configured = policy?.reachability_levels?.levels?.[level] || FALLBACK_LEVELS[level] || {};
+  return {
+    level,
+    reason,
+    governanceAction: configured.governance_action || "补齐证据后重新分级",
+    checks: {
+      componentUsage: STATUS.get(componentUsage),
+      dangerousSink: STATUS.get(dangerousSink),
+      externalInputToSink: STATUS.get(externalInput),
+      completeAttackPath: STATUS.get(completeAttackPath),
+    },
+  };
+}
+
 const sinkPatterns = (sinks) => (sinks || []).map((item) =>
   typeof item === "object" ? String(item.api || "") : String(item)).filter(Boolean);
 
@@ -85,7 +169,7 @@ function checkSink(evidence, patterns) {
   return [null, "no matching sink found, but sink scan completeness is not established", []];
 }
 
-export function judge(alert, rule, dep, evidence, source = {}, snapshotId = "") {
+export function judge(alert, rule, dep, evidence, source = {}, snapshotId = "", policy = {}) {
   const installed = dep?.version || "";
   let versionMatch;
   let versionDetail;
@@ -131,6 +215,7 @@ export function judge(alert, rule, dep, evidence, source = {}, snapshotId = "") 
   else [verdict, reason] = ["reachable", "version, sink and all exploit preconditions are established"];
   const located = items.some((item) => item.file && item.line);
   const confidence = verdict === "unknown" ? "low" : (located ? "high" : "medium");
+  const level = classifyReachabilityLevel(rule, evidence, versionMatch, policy);
 
   return {
     cveId: alert.advisory.cve_id, ghsaId: alert.advisory.ghsa_id,
@@ -145,6 +230,10 @@ export function judge(alert, rule, dep, evidence, source = {}, snapshotId = "") 
       preconditions: Object.entries(checks.preconditions).map(([id, value]) => ({ id, status: STATUS.get(value) })),
     },
     verdict, confidence, reason,
+    reachabilityLevel: level.level,
+    levelReason: level.reason,
+    governanceAction: level.governanceAction,
+    levelChecks: level.checks,
     evidence: items, fix: rule.fix || [],
   };
 }
@@ -168,7 +257,13 @@ export function requestSelector(request = {}) {
 
 function unknownResponse(request, reason, snapshotId = request?.snapshotId || "") {
   const selector = requestSelector(request);
-  return { cveId: selector.cveId, alertNumber: selector.alertNumber, snapshotId, verdict: "unknown", confidence: "low", reason, evidence: [], fix: [], limitations: [] };
+  return {
+    cveId: selector.cveId, alertNumber: selector.alertNumber, snapshotId,
+    verdict: "unknown", confidence: "low", reason,
+    reachabilityLevel: "unknown", levelReason: reason,
+    governanceAction: "补齐证据后重新分级", levelChecks: {},
+    evidence: [], fix: [], limitations: [],
+  };
 }
 
 export function checkReachabilityAt(snapshotRoot, request, snapshotId = "", alertRoot = snapshotRoot) {
@@ -189,10 +284,11 @@ export function checkReachabilityAt(snapshotRoot, request, snapshotId = "", aler
   }
   const rule = rules.get(alert.advisory.cve_id);
   if (!rule) return unknownResponse(request, "no rule for this CVE", snapshotId);
+  const policy = readRuleYaml(path.join("rules", "verdict.yaml"));
   const dependencyDoc = readJsonAt(snapshotRoot, path.join("repo", "dependencies.json"));
   const usage = readJsonAt(snapshotRoot, path.join("repo", "usage.json")).evidence || {};
   const dep = (dependencyDoc.dependencies || []).find((item) => item.package === alert.vulnerability.package);
-  return judge(alert, rule, dep, usage[alert.vulnerability.package], dependencyDoc.source || {}, snapshotId);
+  return judge(alert, rule, dep, usage[alert.vulnerability.package], dependencyDoc.source || {}, snapshotId, policy);
 }
 
 export function checkReachabilityHandler(ctx) {

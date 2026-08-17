@@ -31,6 +31,15 @@ class PipelineTest(unittest.TestCase):
             "verdict": "reachable",
             "confidence": "high",
             "reason": "all required conditions are established",
+            "reachabilityLevel": "L3",
+            "levelReason": "external input reaches the dangerous sink",
+            "governanceAction": "high-priority remediation",
+            "levelChecks": {
+                "componentUsage": "pass",
+                "dangerousSink": "pass",
+                "externalInputToSink": "pass",
+                "completeAttackPath": "unknown",
+            },
             "evidence": [{
                 "ruleId": "rule-test", "check": "sink_call", "status": "pass",
                 "detail": "matched sink", "file": "Example.java", "line": 42,
@@ -43,11 +52,15 @@ class PipelineTest(unittest.TestCase):
 
         self.assertEqual(verdict["verdict"], "reachable")
         self.assertEqual(verdict["rule_id"], "rule-test")
+        self.assertEqual(verdict["reachability_level"], "L3")
+        self.assertEqual(verdict["level_checks"]["complete_attack_path"], "unknown")
         self.assertEqual(verdict["checks"]["preconditions"], {"input_controlled": "pass"})
         report = pipeline.build_markdown(
             [verdict], {"snapshotId": "snapshot-1", "resolvedCommit": "abc"}, "2026-01-01T00:00:00Z"
         )
         self.assertIn("CVE-TEST — REACHABLE", report)
+        self.assertIn("level: **L3**", report)
+        self.assertIn("high-priority remediation", report)
         self.assertIn("Example.java:42", report)
 
 

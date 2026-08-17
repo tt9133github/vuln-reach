@@ -1,9 +1,9 @@
-schema_version: rules/1.0
+schema_version: rules/2.0
 package: org.apache.velocity:velocity
 description: Apache Velocity 模板沙箱绕过漏洞规则
 
 rules:
-  - rule_id: velocity-cve-2020-13936-v1
+  - rule_id: velocity-cve-2020-13936-v2
     cve: CVE-2020-13936
     ghsa: GHSA-59j4-wjwp-mw9m
     vulnerability_class: template-injection
@@ -16,6 +16,24 @@ rules:
         description: "攻击者能够修改或控制 Velocity 模板内容"
         evidence_path: "template_control"
         expect: "attacker_controlled"
+    level_evidence:
+      component_usage:
+        evidence_path: "usage[*]"
+      dangerous_sink:
+        evidence_path: "usage[*]"
+        field: "api"
+        expect: "VelocityEngine.getTemplate(String)"
+      external_input_to_sink:
+        evidence_path: "template_control"
+        expect: "attacker_controlled"
+        unknown_values: ["unknown"]
+      complete_attack_path:
+        all:
+          - evidence_path: "template_control"
+            expect: "attacker_controlled"
+            unknown_values: ["unknown"]
+          - evidence_path: "runtime.velocity_sandbox_bypass_reproducible"
+            expect: true
     exploit_notes: "漏洞利用前提是攻击者可修改模板；本项目模板为打包内 classpath 资源，无外部写入入口，即使版本命中也不构成实际风险"
     fix:
       - "迁移到 org.apache.velocity:velocity-engine-core 2.3 或更高受支持版本；Velocity 2.x 已更换 Maven artifact，需做 API/配置兼容性测试"

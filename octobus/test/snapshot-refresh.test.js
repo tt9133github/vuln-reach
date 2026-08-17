@@ -70,6 +70,7 @@ test("build creates an immutable snapshot from fixed alerts and a source archive
     const usage = JSON.parse(fs.readFileSync(path.join(snapshot, "repo", "usage.json"), "utf8"));
     assert.equal(dependencies.dependencies[0].version, "1.2.31");
     assert.equal(usage.evidence["com.alibaba:fastjson"].entry_points[0].sink_argument_controlled, true);
+    assert.equal(usage.evidence["com.alibaba:fastjson"].component_usage_scan_complete, true);
     assert.equal(fs.existsSync(path.join(snapshot, "source", "src", "main", "java", "Example.java")), true);
   } finally {
     globalThis.fetch = originalFetch;

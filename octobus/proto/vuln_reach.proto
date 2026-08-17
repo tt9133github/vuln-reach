@@ -46,6 +46,17 @@ message CheckReachabilityResponse {
   repeated string limitations = 16;
   ReachabilityChecks checks = 17;
   string snapshot_id = 18 [json_name = "snapshotId"];
+  string reachability_level = 19 [json_name = "reachabilityLevel"];
+  string level_reason = 20 [json_name = "levelReason"];
+  string governance_action = 21 [json_name = "governanceAction"];
+  ReachabilityLevelChecks level_checks = 22 [json_name = "levelChecks"];
+}
+
+message ReachabilityLevelChecks {
+  string component_usage = 1 [json_name = "componentUsage"];
+  string dangerous_sink = 2 [json_name = "dangerousSink"];
+  string external_input_to_sink = 3 [json_name = "externalInputToSink"];
+  string complete_attack_path = 4 [json_name = "completeAttackPath"];
 }
 
 message ReachabilityChecks {

@@ -37,6 +37,7 @@ def grpc_call(method: str, payload: dict) -> dict:
 
 def normalize_verdict(remote: dict) -> dict:
     checks = remote.get("checks") or {}
+    level_checks = remote.get("levelChecks") or {}
     return {
         "cve_id": remote.get("cveId", ""),
         "ghsa_id": remote.get("ghsaId", ""),
@@ -62,6 +63,15 @@ def normalize_verdict(remote: dict) -> dict:
         "verdict": remote.get("verdict", "unknown"),
         "confidence": remote.get("confidence", "low"),
         "verdict_reason": remote.get("reason", ""),
+        "reachability_level": remote.get("reachabilityLevel", "unknown"),
+        "level_reason": remote.get("levelReason", ""),
+        "governance_action": remote.get("governanceAction", ""),
+        "level_checks": {
+            "component_usage": level_checks.get("componentUsage", "unknown"),
+            "dangerous_sink": level_checks.get("dangerousSink", "unknown"),
+            "external_input_to_sink": level_checks.get("externalInputToSink", "unknown"),
+            "complete_attack_path": level_checks.get("completeAttackPath", "unknown"),
+        },
         "evidence": [
             {
                 "rule_id": item.get("ruleId", ""),
@@ -102,6 +112,16 @@ def build_markdown(verdicts: list[dict], snapshot: dict, generated_at: str) -> s
             f"- precondition `{name}`: {status.upper()}"
             for name, status in value["checks"]["preconditions"].items()
         )
+        lines += [
+            "", "### Enterprise Reachability Level", "",
+            f"- level: **{value['reachability_level']}**",
+            f"- reason: {value['level_reason']}",
+            f"- governance action: {value['governance_action']}",
+            f"- component_usage: {value['level_checks']['component_usage'].upper()}",
+            f"- dangerous_sink: {value['level_checks']['dangerous_sink'].upper()}",
+            f"- external_input_to_sink: {value['level_checks']['external_input_to_sink'].upper()}",
+            f"- complete_attack_path: {value['level_checks']['complete_attack_path'].upper()}",
+        ]
         lines += ["", "### Evidence", ""]
         for item in value["evidence"]:
             location = f" ({item['file']}:{item['line']})" if item["file"] and item["line"] else ""
@@ -152,7 +172,7 @@ def main() -> int:
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     (REPORT / "verdicts.json").write_text(json.dumps({
-        "schema_version": "verdict/3.0", "generated_at": generated_at,
+        "schema_version": "verdict/4.0", "generated_at": generated_at,
         "snapshot_id": snapshot_id, "source": "octobus", "verdicts": verdicts,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (REPORT / "reachability-report.md").write_text(

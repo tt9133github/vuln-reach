@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkReachabilityAt, judge, requestSelector, versionInRange } from "../bin/vuln-reach.js";
+import { checkReachabilityAt, classifyReachabilityLevel, judge, requestSelector, versionInRange } from "../bin/vuln-reach.js";
 import { analyzeSourceUsage, parseMavenDependencies } from "../lib/snapshot.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -17,11 +17,39 @@ test("strict version parser does not fail open", () => {
 });
 
 test("fixed analysis fixture produces expected verdicts", () => {
-  assert.equal(checkReachabilityAt(FIXTURE, { cveId: "CVE-2025-70974" }, "fixture", INPUTS).verdict, "reachable");
-  assert.equal(checkReachabilityAt(FIXTURE, { cveId: "CVE-2022-25845" }, "fixture", INPUTS).verdict, "reachable");
-  assert.equal(checkReachabilityAt(FIXTURE, { cveId: "CVE-2020-13936" }, "fixture", INPUTS).verdict, "unknown");
+  const firstFastjson = checkReachabilityAt(FIXTURE, { cveId: "CVE-2025-70974" }, "fixture", INPUTS);
+  const secondFastjson = checkReachabilityAt(FIXTURE, { cveId: "CVE-2022-25845" }, "fixture", INPUTS);
+  const velocity = checkReachabilityAt(FIXTURE, { cveId: "CVE-2020-13936" }, "fixture", INPUTS);
+  assert.equal(firstFastjson.verdict, "reachable");
+  assert.equal(secondFastjson.verdict, "reachable");
+  assert.equal(velocity.verdict, "unknown");
+  assert.equal(firstFastjson.reachabilityLevel, "L3");
+  assert.equal(secondFastjson.reachabilityLevel, "L3");
+  assert.equal(velocity.reachabilityLevel, "L2");
   assert.equal(checkReachabilityAt(FIXTURE, { selector: { case: "cveId", value: "CVE-2025-70974" } }, "fixture", INPUTS).verdict, "reachable");
   assert.equal(checkReachabilityAt(FIXTURE, { selector: { case: "alertNumber", value: 1 } }, "fixture", INPUTS).verdict, "unknown");
+});
+
+test("enterprise levels represent the highest proven attack-chain stage", () => {
+  const rule = {
+    level_evidence: {
+      component_usage: { evidence_path: "usage[*]" },
+      dangerous_sink: { evidence_path: "sinks[*]" },
+      external_input_to_sink: { evidence_path: "flows[*].external", expect: true },
+      complete_attack_path: { all: [
+        { evidence_path: "flows[*].external", expect: true },
+        { evidence_path: "runtime.exploitable", expect: true },
+      ] },
+    },
+  };
+  const level = (evidence, version = true) => classifyReachabilityLevel(rule, evidence, version).level;
+  assert.equal(level({ component_usage_scan_complete: true, usage: [], sinks: [] }), "L0");
+  assert.equal(level({ usage: [{ api: "ordinary" }], sinks: [] }), "L1");
+  assert.equal(level({ usage: [{ api: "ordinary" }], sinks: [{ api: "danger" }] }), "L2");
+  assert.equal(level({ sinks: [{ api: "danger" }], flows: [{ external: true }] }), "L3");
+  assert.equal(level({ sinks: [{ api: "danger" }], flows: [{ external: true }], runtime: { exploitable: true } }), "L4");
+  assert.equal(level({}, true), "unknown");
+  assert.equal(level({}, false), "NA");
 });
 
 test("selector parser supports protobuf-es oneof and flat compatibility requests", () => {
