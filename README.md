@@ -138,19 +138,29 @@ docker exec octobus sh -c \
 
 ## 实施问题与处理
 
-### 1. 项目路径变化会生成重复记录
+### 1. 官方一键安装器无法拉取运行镜像
+
+**现象：** 在阿里云服务器执行官方 `installer-latest` 一键安装命令时，安装脚本能够下载，但启动阶段持续拉取镜像失败。当时安装器解析出的镜像包括 `docker.io/chaitin/agent-compose:v2608.3.0` 和 `docker.io/chaitin/agent-compose-ui:v2608.2.0`；改为源码构建后，构建所需的 `docker.io/library/golang:1.26.4-alpine` 也无法拉取。
+
+**定位：** 将管道命令拆开，单独保存并执行 `install.sh`，再结合独立 `docker pull` 和 Docker daemon 日志排查。日志显示，国内 Docker Hub 代理分别出现镜像或标签未同步的 `404`、allowlist 拒绝的 `403`、`502`、DNS/TLS 异常和连接超时，最终回退 `registry-1.docker.io` 后仍超时。因此根因不是安装脚本无法下载或官方镜像内容损坏，而是安装器选用的 Docker Hub 拉取链路与当前网络、镜像代理不兼容。
+
+**处理：** 不再依赖安装器自动选择镜像，在 `deploy/docker-compose.yml` 中显式使用考核文档指定的官方 GHCR 镜像，并将 Agent-Compose daemon/guest 固定为已验证兼容的 `v2607.10.0`。GHCR 直连不稳定时曾通过国内 GHCR 代理完成拉取，并用 digest 与 OCI source 标签核对上游来源；随后由 `docker compose pull`、`docker compose up -d` 统一管理 Agent-Compose 与 OctoBus。Compose 提供的是可控、可复现的编排，真正绕开故障的是显式控制镜像仓库和版本。
+
+**改进：** 部署前分别探测 GitHub Release、GHCR 和基础镜像的可达性；生产部署固定版本及 digest，不依赖 `latest` 或镜像站是否及时同步；条件允许时将验证过的镜像同步到企业私有仓库，形成受控的镜像供应链。
+
+### 2. 项目路径变化会生成重复记录
 
 早期试跑时曾在不同层级放置 `agent-compose.yml`，导致 Agent-Compose 将同一应用识别为多个项目，并留下重复调度器记录。最终将仓库固定到 `/opt/agent-compose/data/projects/vuln-reach`，配置固定在仓库根目录；替换代码前先对旧配置执行 `down`。
 
-### 2. 全新数据库中 Agent 无法自动找到 OctoBus
+### 3. 全新数据库中 Agent 无法自动找到 OctoBus
 
 仅启动两个 daemon 并不会自动建立能力网关配置。表现为 OctoBus `status` 正常，capset 也存在，但 Guest 内没有可用能力。`scripts/configure_gateway.sh` 在部署后显式写入 OctoBus 内网地址和 Token；`scripts/deploy_octobus.sh` 再建立 `service → instance → capset → method → token` 链路，且不在终端打印 Token。
 
-### 3. Python 与 JS 双引擎可能给出不一致结论
+### 4. Python 与 JS 双引擎可能给出不一致结论
 
 确定性研判脚本和 OctoBus 能力分别使用 Python 与 JavaScript 实现，若只同步文档而没有同步测试，规则边界容易漂移。处理方式是让两个引擎消费同一份 `workspace/` 证据，在 CI 中使用相同的 CVE 场景验证关键字段；运行时若结果不一致，最终结论必须降级为 `unknown`，不允许 Agent 任选一边。
 
-### 4. 默认暴露控制面不符合交付要求
+### 5. 默认暴露控制面不符合交付要求
 
 试跑阶段使用过对外发布的 UI，但控制面不应在无额外鉴权时暴露到公网。最终 Compose 不启动 UI，并将 Agent-Compose 和 OctoBus HTTP 端口均绑定到 `127.0.0.1`；对外只保留受安全组限制的 SSH。
 
